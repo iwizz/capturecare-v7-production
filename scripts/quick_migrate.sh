@@ -27,15 +27,22 @@ if [ -z "$DB_PASSWORD" ]; then
     exit 1
 fi
 
-# Check if password is correct by testing connection
+# Check if password is correct by testing connection (will be updated after proxy starts)
 echo ""
-echo "🔍 Testing connection..."
-export DATABASE_URL="postgresql://capturecare:${DB_PASSWORD}@127.0.0.1:5432/capturecare"
+echo "🔍 Preparing connection..."
+
+# Find an available port
+PROXY_PORT=5433
+while lsof -Pi :$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; do
+    PROXY_PORT=$((PROXY_PORT + 1))
+done
+
+echo "   Using port: $PROXY_PORT (5432 is already in use)"
 
 # Start Cloud SQL Proxy in background
 echo ""
-echo "🔌 Starting Cloud SQL Proxy..."
-./cloud-sql-proxy capturecare-461801:australia-southeast2:capturecare-db --port=5432 > /tmp/cloud-sql-proxy.log 2>&1 &
+echo "🔌 Starting Cloud SQL Proxy on port $PROXY_PORT..."
+./cloud-sql-proxy capturecare-461801:australia-southeast2:capturecare-db --port=$PROXY_PORT > /tmp/cloud-sql-proxy.log 2>&1 &
 PROXY_PID=$!
 
 # Wait for proxy to start
@@ -48,8 +55,11 @@ if ! kill -0 $PROXY_PID 2>/dev/null; then
     exit 1
 fi
 
-echo "✅ Cloud SQL Proxy started (PID: $PROXY_PID)"
+echo "✅ Cloud SQL Proxy started on port $PROXY_PORT (PID: $PROXY_PID)"
 echo ""
+
+# Update DATABASE_URL with the correct port
+export DATABASE_URL="postgresql://capturecare:${DB_PASSWORD}@127.0.0.1:${PROXY_PORT}/capturecare"
 
 # Test connection
 echo "🧪 Testing database connection..."
