@@ -38,6 +38,8 @@ class Config:
                 'TWILIO_ACCOUNT_SID': 'twilio-account-sid',
                 'TWILIO_AUTH_TOKEN': 'twilio-auth-token',
                 'TWILIO_PHONE_NUMBER': 'twilio-phone-number',
+                'TWILIO_API_KEY_SID': 'twilio-api-key-sid',
+                'TWILIO_API_KEY_SECRET': 'twilio-api-key-secret',
                 'SMTP_SERVER': 'smtp-server',
                 'SMTP_PORT': 'smtp-port',
                 'SMTP_USERNAME': 'smtp-username',
