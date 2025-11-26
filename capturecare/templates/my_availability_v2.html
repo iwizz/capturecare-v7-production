@@ -1,0 +1,1159 @@
+{% extends "base.html" %}
+
+{% block title %}My Availability - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto p-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold text-gray-800">
+            <i class="fas fa-calendar-check text-blue-600"></i> My Availability
+        </h2>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- LEFT SECTION: Recurring Availability Patterns -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-repeat text-blue-600"></i> Recurring Availability
+                </h3>
+                <button onclick="showAddPattern()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition">
+                    <i class="fas fa-plus"></i> Add Pattern
+                </button>
+            </div>
+
+            <div class="bg-blue-50 border-l-4 border-blue-600 p-3 mb-4 text-sm">
+                <i class="fas fa-info-circle text-blue-600"></i>
+                Set up recurring blocks like "Every Monday" or "Lunch every day"
+            </div>
+
+            <!-- Add Pattern Form (hidden by default) -->
+            <div id="patternForm" class="hidden bg-gray-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+                <h4 id="patternFormTitle" class="font-semibold mb-3 text-gray-700">New Availability Pattern</h4>
+                <form onsubmit="savePattern(event)">
+                    <input type="hidden" id="patternId" value="">
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Pattern Name</label>
+                        <input type="text" id="patternTitle" required placeholder="e.g., Morning Shift, Lunch Break" 
+                               class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Repeats</label>
+                        <select id="patternFrequency" onchange="updateDaySelector()" required 
+                                class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select...</option>
+                            <option value="daily">Every Day</option>
+                            <option value="weekdays">Weekdays Only (Mon-Fri)</option>
+                            <option value="weekly">Specific Days of Week</option>
+                            <option value="custom">Custom Schedule</option>
+                        </select>
+                    </div>
+
+                    <!-- Day Selector (shown for weekly/custom patterns) -->
+                    <div id="daySelector" class="hidden mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Days</label>
+                        <div class="flex flex-wrap gap-2">
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="0" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Mon</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="1" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Tue</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="2" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Wed</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="3" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Thu</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="4" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Fri</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="5" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Sat</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer px-3 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                <input type="checkbox" value="6" class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                                <span class="text-sm">Sun</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                            <input type="time" id="patternStartTime" required 
+                                   class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                            <input type="time" id="patternEndTime" required 
+                                   class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Validity Period (Optional)</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Valid From</label>
+                                <input type="date" id="patternValidFrom" 
+                                       class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">Valid Until</label>
+                                <input type="date" id="patternValidUntil" 
+                                       class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Leave blank for patterns that repeat indefinitely</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox" id="patternActive" checked 
+                                   class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                            <span class="text-sm font-medium text-gray-700">Pattern is active</span>
+                        </label>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm transition">
+                            <i class="fas fa-save"></i> Save Pattern
+                        </button>
+                        <button type="button" onclick="hidePatternForm()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded text-sm transition">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Patterns List -->
+            <div id="patternsList">
+                <div class="text-center py-8 text-gray-500">
+                    <div class="animate-spin inline-block h-6 w-6 border-b-2 border-blue-600"></div>
+                    <p class="mt-2">Loading patterns...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT SECTION: Holidays & Blocked Dates -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-ban text-red-600"></i> Holidays & Blocked Dates
+                </h3>
+                <button onclick="showAddException()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition">
+                    <i class="fas fa-plus"></i> Block Date
+                </button>
+            </div>
+
+            <div class="bg-red-50 border-l-4 border-red-600 p-3 mb-4 text-sm">
+                <i class="fas fa-info-circle text-red-600"></i>
+                Block specific dates for holidays, vacations, or time off
+            </div>
+
+            <!-- Add Exception Form (hidden by default) -->
+            <div id="exceptionForm" class="hidden bg-gray-50 border-2 border-red-200 rounded-lg p-4 mb-4">
+                <h4 class="font-semibold mb-3 text-gray-700">Block Date(s)</h4>
+                <form onsubmit="saveException(event)">
+                    <div class="mb-3">
+                        <label class="flex items-center cursor-pointer mb-2">
+                            <input type="checkbox" id="exceptionDateRange" onchange="toggleDateRange()" 
+                                   class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                            <span class="text-sm font-medium text-gray-700">Block multiple days (date range)</span>
+                        </label>
+                    </div>
+
+                    <div id="singleDateDiv" class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                        <input type="date" id="exceptionDate" required 
+                               class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div id="dateRangeDiv" class="hidden mb-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                                <input type="date" id="exceptionFromDate" 
+                                       class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                                <input type="date" id="exceptionToDate" 
+                                       class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                        <select id="exceptionType" 
+                                class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                            <option value="blocked">Blocked/Unavailable</option>
+                            <option value="holiday">Holiday</option>
+                            <option value="vacation">Vacation</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="checkbox" id="exceptionAllDay" checked onchange="toggleExceptionTimes()" 
+                                   class="form-checkbox h-4 w-4 text-blue-600 mr-2">
+                            <span class="text-sm font-medium text-gray-700">All Day</span>
+                        </label>
+                    </div>
+
+                    <div id="exceptionTimes" class="hidden grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                            <input type="time" id="exceptionStartTime" 
+                                   class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                            <input type="time" id="exceptionEndTime" 
+                                   class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Reason (optional)</label>
+                        <input type="text" id="exceptionReason" placeholder="e.g., Christmas Day, Doctor's Appointment" 
+                               class="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition">
+                            <i class="fas fa-save"></i> Block Date
+                        </button>
+                        <button type="button" onclick="hideExceptionForm()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded text-sm transition">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Exceptions List -->
+            <div id="exceptionsList">
+                <div class="text-center py-8 text-gray-500">
+                    <div class="animate-spin inline-block h-6 w-6 border-b-2 border-red-600"></div>
+                    <p class="mt-2">Loading blocked dates...</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- CALENDAR VIEW SECTION -->
+    <div class="bg-white rounded-lg shadow-md p-6 mt-8">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-2xl font-semibold text-gray-800">
+                <i class="fas fa-calendar-alt text-green-600"></i> Team Availability Calendar
+            </h3>
+        </div>
+
+        <!-- User Filter Toggles -->
+        <div class="bg-gray-50 rounded-lg p-4 mb-6">
+            <div class="flex items-center gap-2 mb-3">
+                <i class="fas fa-users text-gray-600"></i>
+                <span class="font-semibold text-gray-700">Show Availability For:</span>
+            </div>
+            <div id="userFilters" class="flex flex-wrap gap-3">
+                <div class="animate-pulse text-gray-500 text-sm">Loading users...</div>
+            </div>
+        </div>
+
+        <!-- Calendar -->
+        <div id="availabilityCalendar" style="min-height: 600px;"></div>
+    </div>
+</div>
+
+<!-- FullCalendar CSS & JS -->
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+
+<script>
+let availabilityCalendar;
+let selectedUsers = new Set();
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadPatterns();
+    loadExceptions();
+    initializeAvailabilityCalendar();
+    loadUserFilters();
+});
+
+// Pattern Functions
+function showAddPattern() {
+    document.getElementById('patternId').value = '';
+    document.getElementById('patternFormTitle').textContent = 'New Availability Pattern';
+    document.getElementById('patternForm').classList.remove('hidden');
+}
+
+function hidePatternForm() {
+    document.getElementById('patternForm').classList.add('hidden');
+    document.querySelector('#patternForm form').reset();
+    document.getElementById('daySelector').classList.add('hidden');
+    document.getElementById('patternId').value = '';
+    document.getElementById('patternFormTitle').textContent = 'New Availability Pattern';
+}
+
+async function editPattern(patternId) {
+    try {
+        const response = await fetch('/api/availability-patterns');
+        const data = await response.json();
+        
+        if (data.success) {
+            const pattern = data.patterns.find(p => p.id === patternId);
+            if (!pattern) {
+                showAlert('Pattern not found', 'error');
+                return;
+            }
+            
+            // Set form title and ID
+            document.getElementById('patternFormTitle').textContent = 'Edit Availability Pattern';
+            document.getElementById('patternId').value = pattern.id;
+            
+            // Populate form fields
+            document.getElementById('patternTitle').value = pattern.title;
+            document.getElementById('patternFrequency').value = pattern.frequency;
+            document.getElementById('patternStartTime').value = pattern.start_time;
+            document.getElementById('patternEndTime').value = pattern.end_time;
+            document.getElementById('patternValidFrom').value = pattern.valid_from || '';
+            document.getElementById('patternValidUntil').value = pattern.valid_until || '';
+            document.getElementById('patternActive').checked = pattern.is_active;
+            
+            // Handle day selector
+            updateDaySelector();
+            if (pattern.weekdays && (pattern.frequency === 'weekly' || pattern.frequency === 'custom')) {
+                const days = pattern.weekdays.split(',');
+                document.querySelectorAll('#daySelector input[type="checkbox"]').forEach(cb => {
+                    cb.checked = days.includes(cb.value);
+                });
+            }
+            
+            // Show form
+            document.getElementById('patternForm').classList.remove('hidden');
+            document.getElementById('patternForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    } catch (error) {
+        console.error('Error loading pattern for edit:', error);
+        showAlert('Failed to load pattern: ' + error.message, 'error');
+    }
+}
+
+function updateDaySelector() {
+    const frequency = document.getElementById('patternFrequency').value;
+    const daySelector = document.getElementById('daySelector');
+    
+    if (frequency === 'weekly' || frequency === 'custom') {
+        daySelector.classList.remove('hidden');
+    } else {
+        daySelector.classList.add('hidden');
+    }
+}
+
+async function loadPatterns() {
+    try {
+        const response = await fetch('/api/availability-patterns');
+        const data = await response.json();
+        
+        if (data.success) {
+            displayPatterns(data.patterns);
+        } else {
+            throw new Error(data.error || 'Failed to load patterns');
+        }
+    } catch (error) {
+        console.error('Error loading patterns:', error);
+        document.getElementById('patternsList').innerHTML = `
+            <div class="text-center py-4 text-red-600">
+                <i class="fas fa-exclamation-triangle"></i> Failed to load patterns
+            </div>
+        `;
+    }
+}
+
+function displayPatterns(patterns) {
+    const container = document.getElementById('patternsList');
+    
+    if (patterns.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-calendar-plus text-4xl mb-2"></i>
+                <p>No recurring patterns yet</p>
+                <p class="text-sm">Click "Add Pattern" to create one</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const frequencyLabels = {
+        'daily': 'Every Day',
+        'weekdays': 'Weekdays (Mon-Fri)',
+        'weekly': 'Weekly',
+        'custom': 'Custom'
+    };
+    
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    
+    container.innerHTML = patterns.map(pattern => {
+        let daysDisplay = '';
+        if (pattern.weekdays) {
+            const days = pattern.weekdays.split(',').map(d => dayNames[parseInt(d)]);
+            daysDisplay = `<span class="text-xs text-gray-600"> (${days.join(', ')})</span>`;
+        }
+        
+        let validityDisplay = '';
+        if (pattern.valid_from || pattern.valid_until) {
+            const from = pattern.valid_from ? new Date(pattern.valid_from).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'Start';
+            const until = pattern.valid_until ? new Date(pattern.valid_until).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'No end';
+            validityDisplay = `
+                <p class="text-xs text-gray-500 mt-1">
+                    <i class="far fa-calendar-alt"></i> Valid: ${from} → ${until}
+                </p>
+            `;
+        }
+        
+        return `
+            <div class="border border-gray-200 rounded-lg p-4 mb-3 hover:border-blue-400 transition ${pattern.is_active ? '' : 'opacity-60'}">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <h4 class="font-semibold text-gray-800">${pattern.title}</h4>
+                        <p class="text-sm text-gray-600 mt-1">
+                            <i class="far fa-calendar"></i> ${frequencyLabels[pattern.frequency] || pattern.frequency}${daysDisplay}
+                        </p>
+                        <p class="text-sm text-gray-600 mt-1">
+                            <i class="far fa-clock"></i> ${pattern.start_time} - ${pattern.end_time}
+                        </p>
+                        ${validityDisplay}
+                        <div class="mt-2 flex items-center gap-2">
+                            ${pattern.is_active ? 
+                                `<button onclick="togglePatternActive(${pattern.id}, false)" class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded hover:bg-green-200 transition">
+                                    <i class="fas fa-check-circle"></i> Active
+                                </button>` :
+                                `<button onclick="togglePatternActive(${pattern.id}, true)" class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded hover:bg-gray-200 transition">
+                                    <i class="fas fa-times-circle"></i> Inactive (Click to activate)
+                                </button>`
+                            }
+                        </div>
+                    </div>
+                    <div class="ml-3 flex gap-2">
+                        <button onclick="editPattern(${pattern.id})" 
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button onclick="deletePattern(${pattern.id})" 
+                                class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function savePattern(event) {
+    event.preventDefault();
+    
+    const patternId = document.getElementById('patternId').value;
+    const title = document.getElementById('patternTitle').value;
+    const frequency = document.getElementById('patternFrequency').value;
+    const startTime = document.getElementById('patternStartTime').value;
+    const endTime = document.getElementById('patternEndTime').value;
+    const validFrom = document.getElementById('patternValidFrom').value || null;
+    const validUntil = document.getElementById('patternValidUntil').value || null;
+    const isActive = document.getElementById('patternActive').checked;
+    
+    let weekdays = null;
+    if (frequency === 'weekly' || frequency === 'custom') {
+        const checked = Array.from(document.querySelectorAll('#daySelector input[type="checkbox"]:checked'));
+        if (checked.length === 0) {
+            showAlert('Please select at least one day', 'error');
+            return;
+        }
+        weekdays = checked.map(cb => cb.value).join(',');
+    } else if (frequency === 'weekdays') {
+        weekdays = '0,1,2,3,4';  // Mon-Fri
+    }
+    
+    const payload = {
+        title, frequency, weekdays, 
+        start_time: startTime,
+        end_time: endTime,
+        valid_from: validFrom,
+        valid_until: validUntil,
+        is_active: isActive
+    };
+    
+    try {
+        // Determine if we're creating or updating
+        const isEdit = patternId !== '';
+        const url = isEdit ? `/api/availability-patterns/${patternId}` : '/api/availability-patterns';
+        const method = isEdit ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            hidePatternForm();
+            loadPatterns();
+            if (availabilityCalendar) {
+                availabilityCalendar.refetchEvents();
+            }
+            showAlert(isEdit ? 'Pattern updated successfully!' : 'Pattern created successfully!', 'success');
+        } else {
+            throw new Error(data.error || `Failed to ${isEdit ? 'update' : 'create'} pattern`);
+        }
+    } catch (error) {
+        console.error('Error saving pattern:', error);
+        showAlert('Failed to save pattern: ' + error.message, 'error');
+    }
+}
+
+async function togglePatternActive(patternId, newActiveState) {
+    try {
+        const response = await fetch(`/api/availability-patterns/${patternId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ is_active: newActiveState })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            loadPatterns();
+            if (availabilityCalendar) {
+                availabilityCalendar.refetchEvents();
+            }
+            showAlert(newActiveState ? 'Pattern activated' : 'Pattern deactivated', 'success');
+        } else {
+            throw new Error(data.error || 'Failed to update pattern');
+        }
+    } catch (error) {
+        console.error('Error toggling pattern:', error);
+        showAlert('Failed to update pattern: ' + error.message, 'error');
+    }
+}
+
+async function deletePattern(patternId) {
+    if (!confirm('Delete this availability pattern?')) return;
+    
+    try {
+        const response = await fetch(`/api/availability-patterns/${patternId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            loadPatterns();
+            if (availabilityCalendar) {
+                availabilityCalendar.refetchEvents();
+            }
+            showAlert('Pattern deleted successfully', 'success');
+        } else {
+            throw new Error(data.error || 'Failed to delete pattern');
+        }
+    } catch (error) {
+        console.error('Error deleting pattern:', error);
+        showAlert('Failed to delete pattern: ' + error.message, 'error');
+    }
+}
+
+// Exception Functions
+function showAddException() {
+    document.getElementById('exceptionForm').classList.remove('hidden');
+}
+
+function hideExceptionForm() {
+    document.getElementById('exceptionForm').classList.add('hidden');
+    document.querySelector('#exceptionForm form').reset();
+}
+
+function toggleDateRange() {
+    const isRange = document.getElementById('exceptionDateRange').checked;
+    const singleDateDiv = document.getElementById('singleDateDiv');
+    const dateRangeDiv = document.getElementById('dateRangeDiv');
+    const singleDateInput = document.getElementById('exceptionDate');
+    const fromDateInput = document.getElementById('exceptionFromDate');
+    const toDateInput = document.getElementById('exceptionToDate');
+    
+    if (isRange) {
+        singleDateDiv.classList.add('hidden');
+        dateRangeDiv.classList.remove('hidden');
+        singleDateInput.removeAttribute('required');
+        fromDateInput.setAttribute('required', 'required');
+        toDateInput.setAttribute('required', 'required');
+    } else {
+        singleDateDiv.classList.remove('hidden');
+        dateRangeDiv.classList.add('hidden');
+        singleDateInput.setAttribute('required', 'required');
+        fromDateInput.removeAttribute('required');
+        toDateInput.removeAttribute('required');
+    }
+}
+
+function toggleExceptionTimes() {
+    const allDay = document.getElementById('exceptionAllDay').checked;
+    const timesDiv = document.getElementById('exceptionTimes');
+    
+    if (allDay) {
+        timesDiv.classList.add('hidden');
+    } else {
+        timesDiv.classList.remove('hidden');
+    }
+}
+
+async function loadExceptions() {
+    try {
+        const response = await fetch('/api/availability-exceptions');
+        const data = await response.json();
+        
+        if (data.success) {
+            displayExceptions(data.exceptions);
+        } else {
+            throw new Error(data.error || 'Failed to load exceptions');
+        }
+    } catch (error) {
+        console.error('Error loading exceptions:', error);
+        document.getElementById('exceptionsList').innerHTML = `
+            <div class="text-center py-4 text-red-600">
+                <i class="fas fa-exclamation-triangle"></i> Failed to load blocked dates
+            </div>
+        `;
+    }
+}
+
+function displayExceptions(exceptions) {
+    const container = document.getElementById('exceptionsList');
+    
+    if (exceptions.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-calendar-times text-4xl mb-2"></i>
+                <p>No blocked dates yet</p>
+                <p class="text-sm">Click "Block Date" to add one</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const typeIcons = {
+        'blocked': 'fa-ban',
+        'holiday': 'fa-tree',
+        'vacation': 'fa-umbrella-beach'
+    };
+    
+    const typeColors = {
+        'blocked': 'bg-red-100 text-red-800',
+        'holiday': 'bg-green-100 text-green-800',
+        'vacation': 'bg-blue-100 text-blue-800'
+    };
+    
+    container.innerHTML = exceptions.map(exc => {
+        const date = new Date(exc.exception_date);
+        const formattedDate = date.toLocaleDateString('en-US', { 
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' 
+        });
+        
+        const timeInfo = exc.is_all_day ? 
+            'All Day' : 
+            `${exc.start_time} - ${exc.end_time}`;
+        
+        return `
+            <div class="border border-gray-200 rounded-lg p-4 mb-3 hover:border-red-400 transition">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-1 ${typeColors[exc.exception_type]} text-xs rounded">
+                                <i class="fas ${typeIcons[exc.exception_type]}"></i> ${exc.exception_type}
+                            </span>
+                        </div>
+                        <p class="font-semibold text-gray-800">
+                            <i class="far fa-calendar"></i> ${formattedDate}
+                        </p>
+                        <p class="text-sm text-gray-600 mt-1">
+                            <i class="far fa-clock"></i> ${timeInfo}
+                        </p>
+                        ${exc.reason ? `<p class="text-sm text-gray-600 mt-1 italic">${exc.reason}</p>` : ''}
+                    </div>
+                    <button onclick="deleteException(${exc.id})" 
+                            class="ml-3 bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function saveException(event) {
+    event.preventDefault();
+    
+    const isRange = document.getElementById('exceptionDateRange').checked;
+    const exceptionType = document.getElementById('exceptionType').value;
+    const isAllDay = document.getElementById('exceptionAllDay').checked;
+    const reason = document.getElementById('exceptionReason').value;
+    
+    const payload = {
+        exception_type: exceptionType,
+        is_all_day: isAllDay,
+        reason: reason || null,
+        is_range: isRange
+    };
+    
+    if (isRange) {
+        payload.from_date = document.getElementById('exceptionFromDate').value;
+        payload.to_date = document.getElementById('exceptionToDate').value;
+        
+        if (!payload.from_date || !payload.to_date) {
+            showAlert('Please select both from and to dates', 'error');
+            return;
+        }
+        
+        if (new Date(payload.to_date) < new Date(payload.from_date)) {
+            showAlert('End date must be after start date', 'error');
+            return;
+        }
+    } else {
+        payload.exception_date = document.getElementById('exceptionDate').value;
+    }
+    
+    if (!isAllDay) {
+        payload.start_time = document.getElementById('exceptionStartTime').value;
+        payload.end_time = document.getElementById('exceptionEndTime').value;
+        
+        if (!payload.start_time || !payload.end_time) {
+            showAlert('Please enter start and end times for partial day blocks', 'error');
+            return;
+        }
+    }
+    
+    try {
+        const response = await fetch('/api/availability-exceptions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            hideExceptionForm();
+            loadExceptions();
+            if (availabilityCalendar) {
+                availabilityCalendar.refetchEvents();
+            }
+            const count = data.count || 1;
+            showAlert(`${count} date${count > 1 ? 's' : ''} blocked successfully!`, 'success');
+        } else {
+            throw new Error(data.error || 'Failed to block date');
+        }
+    } catch (error) {
+        console.error('Error saving exception:', error);
+        showAlert('Failed to block date: ' + error.message, 'error');
+    }
+}
+
+async function deleteException(exceptionId) {
+    if (!confirm('Remove this blocked date?')) return;
+    
+    try {
+        const response = await fetch(`/api/availability-exceptions/${exceptionId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            loadExceptions();
+            if (availabilityCalendar) {
+                availabilityCalendar.refetchEvents();
+            }
+            showAlert('Blocked date removed successfully', 'success');
+        } else {
+            throw new Error(data.error || 'Failed to remove blocked date');
+        }
+    } catch (error) {
+        console.error('Error deleting exception:', error);
+        showAlert('Failed to remove blocked date: ' + error.message, 'error');
+    }
+}
+
+// Utility function for alerts
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    const bgColor = type === 'success' ? 'bg-green-100 border-green-500 text-green-800' : 'bg-red-100 border-red-500 text-red-800';
+    alertDiv.className = `fixed top-4 right-4 z-50 ${bgColor} border-l-4 p-4 rounded shadow-lg max-w-md`;
+    alertDiv.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span>${message}</span>
+            <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-lg font-bold">&times;</button>
+        </div>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        if (alertDiv.parentElement) {
+            alertDiv.remove();
+        }
+    }, 4000);
+}
+
+// ===================
+// CALENDAR FUNCTIONS
+// ===================
+
+function initializeAvailabilityCalendar() {
+    const calendarEl = document.getElementById('availabilityCalendar');
+    
+    availabilityCalendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        firstDay: 1, // Start week on Monday (Australian standard)
+        slotMinTime: '06:00:00',
+        slotMaxTime: '22:00:00',
+        allDaySlot: false,
+        height: 'auto',
+        expandRows: true,
+        events: loadTeamAvailability,
+        eventDisplay: 'block',
+        nowIndicator: true,
+        weekends: true
+    });
+    
+    availabilityCalendar.render();
+}
+
+async function loadUserFilters() {
+    try {
+        const response = await fetch('/api/users/practitioners');
+        const data = await response.json();
+        
+        if (data.success) {
+            displayUserFilters(data.users);
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+        document.getElementById('userFilters').innerHTML = '<div class="text-red-500 text-sm">Failed to load users</div>';
+    }
+}
+
+function displayUserFilters(users) {
+    const container = document.getElementById('userFilters');
+    
+    // Add "Select All" button
+    let html = `
+        <button onclick="toggleAllUsers()" class="px-3 py-1.5 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition">
+            <i class="fas fa-check-double mr-1"></i> Select All
+        </button>
+    `;
+    
+    // Add user toggle buttons
+    html += users.map(user => {
+        const isSelected = selectedUsers.has(user.id);
+        const bgColor = isSelected ? user.color || '#3b82f6' : '#e5e7eb';
+        const textColor = isSelected ? 'white' : '#374151';
+        
+        return `
+            <button onclick="toggleUserFilter(${user.id}, '${user.color || '#3b82f6'}')" 
+                    id="userFilter${user.id}"
+                    data-color="${user.color || '#3b82f6'}"
+                    style="background-color: ${bgColor}; color: ${textColor}"
+                    class="px-3 py-1.5 rounded text-sm hover:opacity-90 transition">
+                <i class="fas fa-user-${user.role === 'nurse' ? 'nurse' : 'md'} mr-1"></i>
+                ${user.name}
+            </button>
+        `;
+    }).join('');
+    
+    container.innerHTML = html;
+}
+
+function toggleUserFilter(userId, userColor) {
+    if (selectedUsers.has(userId)) {
+        selectedUsers.delete(userId);
+        document.getElementById(`userFilter${userId}`).style.backgroundColor = '#e5e7eb';
+        document.getElementById(`userFilter${userId}`).style.color = '#374151';
+    } else {
+        selectedUsers.add(userId);
+        document.getElementById(`userFilter${userId}`).style.backgroundColor = userColor;
+        document.getElementById(`userFilter${userId}`).style.color = 'white';
+    }
+    
+    availabilityCalendar.refetchEvents();
+}
+
+function toggleAllUsers() {
+    const buttons = document.querySelectorAll('[id^="userFilter"]');
+    const allSelected = selectedUsers.size === buttons.length - 1; // -1 for "Select All" button
+    
+    buttons.forEach(button => {
+        const userId = parseInt(button.id.replace('userFilter', ''));
+        if (isNaN(userId)) return; // Skip "Select All" button
+        
+        const userColor = button.getAttribute('data-color') || '#3b82f6';
+        
+        if (allSelected) {
+            selectedUsers.delete(userId);
+            button.style.backgroundColor = '#e5e7eb';
+            button.style.color = '#374151';
+        } else {
+            selectedUsers.add(userId);
+            button.style.backgroundColor = userColor;
+            button.style.color = 'white';
+        }
+    });
+    
+    availabilityCalendar.refetchEvents();
+}
+
+async function loadTeamAvailability(info, successCallback, failureCallback) {
+    try {
+        // Build query params for selected users
+        const userIds = Array.from(selectedUsers).join(',');
+        const url = userIds ? `/api/team-availability?users=${userIds}` : '/api/team-availability';
+        
+        // Fetch team availability and public holidays in parallel
+        const [availResponse, holidaysResponse] = await Promise.all([
+            fetch(url),
+            fetch('/api/public-holidays')
+        ]);
+        
+        const availData = await availResponse.json();
+        const holidaysData = await holidaysResponse.json();
+        
+        if (availData.success) {
+            const events = convertPatternsToEvents(
+                availData.patterns, 
+                availData.exceptions, 
+                holidaysData.success ? holidaysData.holidays : [],
+                info.start, 
+                info.end
+            );
+            successCallback(events);
+        } else {
+            failureCallback();
+        }
+    } catch (error) {
+        console.error('Error loading team availability:', error);
+        failureCallback();
+    }
+}
+
+function convertPatternsToEvents(patterns, exceptions, holidays, startDate, endDate) {
+    const events = [];
+    const exceptionDates = new Set(exceptions.map(ex => ex.date));
+    const availableDates = new Set();
+    
+    // Helper function to get local date string (YYYY-MM-DD) in AEST without UTC conversion
+    const getLocalDateStr = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    
+    // Track available time slots per day { 'YYYY-MM-DD': [{start: '09:00', end: '12:00'}, ...] }
+    const availableTimeSlots = {};
+    
+    // Track all available time slots
+    patterns.forEach(pattern => {
+        if (!pattern.is_active) return;
+        
+        const weekdays = pattern.weekdays ? pattern.weekdays.split(',').map(Number) : [];
+        const currentDate = new Date(startDate);
+        const endDateObj = new Date(endDate);
+        
+        // Loop through each day in the calendar view
+        while (currentDate <= endDateObj) {
+            const dayOfWeek = (currentDate.getDay() + 6) % 7; // Convert Sunday=0 to Monday=0
+            const dateStr = getLocalDateStr(currentDate); // Use local time instead of UTC
+            
+            // Check if this pattern applies to this day
+            let shouldShow = false;
+            if (pattern.frequency === 'daily') {
+                shouldShow = true;
+            } else if (pattern.frequency === 'weekdays' && dayOfWeek < 5) {
+                shouldShow = true;
+            } else if ((pattern.frequency === 'weekly' || pattern.frequency === 'custom') && weekdays.includes(dayOfWeek)) {
+                // Debug logging
+                console.log(`Pattern "${pattern.title}" weekdays:`, weekdays, 'Current dayOfWeek:', dayOfWeek, 'JS getDay:', currentDate.getDay(), 'Date:', dateStr);
+                shouldShow = true;
+            }
+            
+            // Check validity period
+            if (pattern.valid_from && dateStr < pattern.valid_from) shouldShow = false;
+            if (pattern.valid_until && dateStr > pattern.valid_until) shouldShow = false;
+            
+            // Check if date is blocked by exception
+            if (exceptionDates.has(dateStr)) shouldShow = false;
+            
+            if (shouldShow) {
+                availableDates.add(dateStr);
+                
+                // Track available time slots for this day
+                if (!availableTimeSlots[dateStr]) {
+                    availableTimeSlots[dateStr] = [];
+                }
+                availableTimeSlots[dateStr].push({
+                    start: pattern.start_time,
+                    end: pattern.end_time
+                });
+                
+                events.push({
+                    title: `${pattern.user_name}: ${pattern.title}`,
+                    start: `${dateStr}T${pattern.start_time}`,
+                    end: `${dateStr}T${pattern.end_time}`,
+                    backgroundColor: pattern.user_color || '#3b82f6',
+                    borderColor: pattern.user_color || '#2563eb',
+                    extendedProps: {
+                        userId: pattern.user_id,
+                        userName: pattern.user_name,
+                        isAvailable: true
+                    }
+                });
+            }
+            
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+    });
+    
+    // Add blocked background for unavailable time slots within business hours
+    const businessStart = '08:00';
+    const businessEnd = '18:00';
+    const currentDate = new Date(startDate);
+    const endDateObj = new Date(endDate);
+    
+    while (currentDate <= endDateObj) {
+        const dateStr = getLocalDateStr(currentDate); // Use local time instead of UTC
+        const slots = availableTimeSlots[dateStr] || [];
+        
+        // If completely blocked date (no availability at all), show whole day as blocked
+        if (!availableDates.has(dateStr) && !exceptionDates.has(dateStr)) {
+            events.push({
+                start: `${dateStr}T${businessStart}`,
+                end: `${dateStr}T${businessEnd}`,
+                display: 'background',
+                backgroundColor: '#fee2e2',
+                borderColor: '#fecaca',
+                title: 'Unavailable',
+                extendedProps: {
+                    isBlockedBackground: true
+                }
+            });
+        } else if (slots.length > 0) {
+            // Fill gaps between available slots with blocked time
+            // Sort slots by start time
+            slots.sort((a, b) => a.start.localeCompare(b.start));
+            
+            // Block time before first slot (if it starts after business hours start)
+            if (slots[0].start > businessStart) {
+                events.push({
+                    start: `${dateStr}T${businessStart}`,
+                    end: `${dateStr}T${slots[0].start}`,
+                    display: 'background',
+                    backgroundColor: '#fee2e2',
+                    borderColor: '#fecaca',
+                    title: 'Unavailable',
+                    extendedProps: {
+                        isBlockedBackground: true
+                    }
+                });
+            }
+            
+            // Block gaps between slots
+            for (let i = 0; i < slots.length - 1; i++) {
+                const gapStart = slots[i].end;
+                const gapEnd = slots[i + 1].start;
+                if (gapStart < gapEnd) {
+                    events.push({
+                        start: `${dateStr}T${gapStart}`,
+                        end: `${dateStr}T${gapEnd}`,
+                        display: 'background',
+                        backgroundColor: '#fee2e2',
+                        borderColor: '#fecaca',
+                        title: 'Unavailable',
+                        extendedProps: {
+                            isBlockedBackground: true
+                        }
+                    });
+                }
+            }
+            
+            // Block time after last slot (if it ends before business hours end)
+            const lastSlot = slots[slots.length - 1];
+            if (lastSlot.end < businessEnd) {
+                events.push({
+                    start: `${dateStr}T${lastSlot.end}`,
+                    end: `${dateStr}T${businessEnd}`,
+                    display: 'background',
+                    backgroundColor: '#fee2e2',
+                    borderColor: '#fecaca',
+                    title: 'Unavailable',
+                    extendedProps: {
+                        isBlockedBackground: true
+                    }
+                });
+            }
+        }
+        
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Add exceptions as blocked time
+    exceptions.forEach(ex => {
+        events.push({
+            title: `${ex.user_name}: ${ex.reason || 'Blocked'}`,
+            start: ex.is_all_day ? ex.date : `${ex.date}T${ex.start_time}`,
+            end: ex.is_all_day ? ex.date : `${ex.date}T${ex.end_time}`,
+            backgroundColor: '#dc2626',
+            borderColor: '#b91c1c',
+            display: 'background',
+            extendedProps: {
+                userId: ex.user_id,
+                isException: true
+            }
+        });
+    });
+    
+    // Add Australian public holidays in bright green
+    holidays.forEach(holiday => {
+        events.push({
+            title: holiday.name + ' (Public Holiday)',
+            start: holiday.date,
+            allDay: true,
+            backgroundColor: '#10b981',
+            borderColor: '#059669',
+            textColor: '#ffffff',
+            display: 'background',
+            extendedProps: {
+                isPublicHoliday: true,
+                bookable: true
+            }
+        });
+    });
+    
+    return events;
+}
+</script>
+{% endblock %}

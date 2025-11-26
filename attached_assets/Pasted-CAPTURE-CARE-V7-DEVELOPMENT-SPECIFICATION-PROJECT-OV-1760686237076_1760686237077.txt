@@ -1,0 +1,349 @@
+CAPTURE CARE V7 - DEVELOPMENT SPECIFICATION
+============================================
+
+PROJECT OVERVIEW
+================
+Capture Care V7 is a comprehensive healthcare management system that integrates multiple health data sources to provide unified patient monitoring, AI-powered health insights, and seamless practice management integration.
+
+CORE APPLICATIONS
+=================
+
+1. CAPTURECARE DASHBOARD (Main System)
+   - Location: /capturecare/
+   - Entry Point: web_dashboard.py
+   - Purpose: Comprehensive healthcare dashboard with full feature set
+   - Key Features: Patient management, health visualization, Withings integration, Google Sheets sync, AI reporting
+
+2. PHOENIX HEALTH (Modern Version)
+   - Location: /PhoenixHealth/
+   - Entry Point: run.py
+   - Purpose: Streamlined, modern healthcare management platform
+   - Key Features: JWT authentication, RESTful API, modern UI, essential integrations
+
+TECHNICAL STACK
+===============
+
+Backend:
+- Python 3.11+
+- Flask web framework
+- SQLite database (local development)
+- JWT authentication
+- OAuth2 for external APIs
+
+Frontend:
+- HTML5/CSS3/JavaScript
+- Tailwind CSS (Phoenix Health)
+- Responsive design
+- Real-time data visualization
+
+Key Dependencies:
+- Flask, Flask-CORS, Flask-SQLAlchemy, Flask-JWT-Extended
+- requests, gspread, google-auth
+- openai, withings-api
+- python-dotenv, schedule
+
+DATA SOURCES & INTEGRATIONS
+============================
+
+1. WITHINGS HEALTH DEVICES
+   - API: Withings Health API v2
+   - Authentication: OAuth2
+   - Data: Body composition, cardiovascular, activity, sleep, ECG
+   - Files: withings_auth.py, fetch_withings_data.py
+
+2. CLINIKO PRACTICE MANAGEMENT
+   - API: Cliniko REST API v1
+   - Authentication: Basic Auth with API key
+   - Data: Patient records, treatment notes, demographics
+   - Files: patient_matcher.py, cliniko_ai_notes.py
+
+3. GOOGLE SHEETS
+   - API: Google Sheets API v4
+   - Authentication: Service account credentials
+   - Data: Consolidated health data, historical records
+   - Files: google_sheet_writer.py, consolidated_sheet_writer.py
+
+4. OPENAI AI ANALYSIS
+   - API: OpenAI GPT-4 API
+   - Authentication: API key
+   - Data: Health data analysis, personalized insights
+   - Files: ai_health_reporter.py
+
+5. EMAIL NOTIFICATIONS
+   - Protocol: SMTP (Gmail)
+   - Authentication: App passwords
+   - Data: Health reports, notifications
+   - Files: email_sender.py
+
+PROJECT STRUCTURE
+=================
+
+capturecare/
+├── web_dashboard.py              # Main Flask application
+├── sync_health_data.py          # Health data synchronization
+├── withings_auth.py             # Withings OAuth2 authentication
+├── fetch_withings_data.py       # Withings data fetching
+├── patient_matcher.py          # Cliniko integration
+├── ai_health_reporter.py        # OpenAI health analysis
+├── google_sheet_writer.py       # Google Sheets integration
+├── consolidated_sheet_writer.py  # Consolidated data management
+├── email_sender.py              # Email notifications
+├── scheduled_sync.py            # Automated sync scheduling
+├── templates/                   # HTML templates
+├── static/                      # CSS, images, assets
+├── tokens/                      # OAuth tokens storage
+├── capturecare.env              # Environment configuration
+└── requirements.txt             # Python dependencies
+
+PhoenixHealth/
+├── run.py                       # Application entry point
+├── app/
+│   ├── __init__.py             # Flask app factory
+│   ├── api/                    # REST API endpoints
+│   ├── models/                 # Database models
+│   ├── services/               # Business logic
+│   └── templates/              # HTML templates
+├── config.env                  # Environment configuration
+└── requirements.txt            # Python dependencies
+
+KEY FUNCTIONALITY
+=================
+
+Authentication & User Management:
+- JWT-based authentication (Phoenix Health)
+- Username/password system (CaptureCare)
+- OAuth2 for external APIs
+- Token management and refresh
+
+Patient Management:
+- Patient registration and profiles
+- Withings device authorization
+- Cliniko patient linking
+- Health data visualization
+
+Data Synchronization:
+- Real-time Withings data fetching
+- Google Sheets consolidation
+- Automated daily sync
+- Historical data management
+
+AI Health Analysis:
+- OpenAI-powered health insights
+- Personalized recommendations
+- Automated report generation
+- Email health summaries
+
+Integration Features:
+- Multi-device health tracking
+- Practice management integration
+- Cloud data storage
+- Mobile-responsive design
+
+DEVELOPMENT SETUP
+=================
+
+1. Environment Setup:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. Configuration:
+   - Copy example.env to .env
+   - Configure API keys and credentials
+   - Set up database connections
+
+3. API Keys Required:
+   - Withings API (Client ID, Secret)
+   - Cliniko API (API Key, Shard)
+   - OpenAI API (API Key)
+   - Google Sheets (Service Account JSON)
+   - Email SMTP (Gmail credentials)
+
+4. Database Initialization:
+   ```bash
+   python init_db.py  # For CaptureCare
+   flask db init && flask db migrate && flask db upgrade  # For Phoenix Health
+   ```
+
+5. Running Applications:
+   ```bash
+   # CaptureCare Dashboard
+   python web_dashboard.py
+   
+   # Phoenix Health
+   python run.py
+   ```
+
+CORE WORKFLOWS
+==============
+
+1. Patient Onboarding:
+   - Patient registration in system
+   - Withings device authorization (OAuth2)
+   - Cliniko patient linking
+   - Initial health data sync
+
+2. Daily Health Monitoring:
+   - Automated data synchronization
+   - Google Sheets data consolidation
+   - AI health analysis
+   - Email report generation
+
+3. Health Data Visualization:
+   - Real-time dashboard updates
+   - Interactive medical graphs
+   - Age-based health targets
+   - Trend analysis and insights
+
+4. Clinical Integration:
+   - Cliniko note creation
+   - Patient data synchronization
+   - Treatment note automation
+   - Practice management workflow
+
+API ENDPOINTS (Phoenix Health)
+==============================
+
+Authentication:
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/auth/refresh
+- GET /api/auth/profile
+
+Patients:
+- GET /api/patients
+- POST /api/patients
+- GET /api/patients/{id}
+- PUT /api/patients/{id}
+- POST /api/patients/{id}/sync
+
+Devices:
+- GET /api/devices
+- POST /api/devices/sync
+- GET /api/devices/{id}/data
+
+Reports:
+- POST /api/reports/generate
+- GET /api/reports/{id}
+- GET /api/reports/patient/{id}
+
+DATA MODELS
+===========
+
+User Model:
+- id, email, password_hash, created_at, updated_at
+
+Patient Model:
+- id, clinician_id, withings_user_id, cliniko_patient_id
+- first_name, last_name, email, date_of_birth
+- created_at, updated_at
+
+Health Data Model:
+- id, patient_id, measurement_type, value, unit
+- timestamp, source, created_at
+
+Device Model:
+- id, patient_id, device_type, device_id
+- last_sync, status, created_at
+
+SECURITY CONSIDERATIONS
+=======================
+
+- OAuth2 for external API authentication
+- JWT tokens for user authentication
+- Secure token storage and management
+- Environment variable configuration
+- HTTPS communication
+- Patient data isolation
+- Audit logging
+
+TESTING APPROACH
+================
+
+Unit Tests:
+- API endpoint testing
+- Data model validation
+- Integration testing
+
+Integration Tests:
+- External API connectivity
+- Data synchronization
+- Authentication flows
+
+End-to-End Tests:
+- Complete user workflows
+- Cross-system integration
+- Performance testing
+
+DEPLOYMENT CONSIDERATIONS
+=========================
+
+Development:
+- Local SQLite database
+- Environment variable configuration
+- Debug mode enabled
+
+Production:
+- Database migration support
+- Environment configuration
+- Security hardening
+- Performance optimization
+
+Cloud Deployment:
+- Google Cloud Platform support
+- Docker containerization
+- Automated backup systems
+- Monitoring and logging
+
+COMMON TASKS FOR DEVELOPERS
+============================
+
+1. Adding New Health Metrics:
+   - Update column mapping in consolidated_sheet_writer.py
+   - Add to Withings data fetcher
+   - Update dashboard visualization
+   - Test data flow end-to-end
+
+2. Integrating New APIs:
+   - Create authentication handler
+   - Implement data fetching logic
+   - Add to sync workflow
+   - Update dashboard display
+
+3. Enhancing AI Analysis:
+   - Modify prompts in ai_health_reporter.py
+   - Add new analysis categories
+   - Update report templates
+   - Test with sample data
+
+4. Improving UI/UX:
+   - Update HTML templates
+   - Modify CSS styling
+   - Add JavaScript functionality
+   - Test responsive design
+
+TROUBLESHOOTING GUIDE
+=====================
+
+Common Issues:
+- API authentication failures
+- Data synchronization errors
+- Google Sheets connection issues
+- Token refresh problems
+
+Debug Steps:
+1. Check environment variables
+2. Verify API credentials
+3. Test individual components
+4. Check logs for errors
+5. Validate data flow
+
+Performance Issues:
+- Database query optimization
+- API rate limiting
+- Caching implementation
+- Batch processing
+
+This specification provides the essential information needed for another developer or AI system to understand and work with the Capture Care V7 codebase effectively.

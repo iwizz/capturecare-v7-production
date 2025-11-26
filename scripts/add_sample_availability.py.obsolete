@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""
+Add sample availability patterns for practitioners (max 7 hours per week each)
+"""
+
+import sys
+import os
+
+# Add parent directory to path
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, base_dir)
+sys.path.insert(0, os.path.join(base_dir, 'capturecare'))
+
+# Change to the base directory
+os.chdir(base_dir)
+
+from datetime import time, date
+
+# Import after setting path
+from capturecare.web_dashboard import app
+from capturecare.models import db, User, AvailabilityPattern
+
+# Sample availability patterns (max 7 hours per week)
+# Format: (title, frequency, weekdays, start_time, end_time, hours)
+SAMPLE_PATTERNS = [
+    # Pattern 1: Monday morning (3 hours)
+    ("Monday Morning", "weekly", "0", "09:00", "12:00", 3),
+    # Pattern 2: Wednesday afternoon (3 hours)
+    ("Wednesday Afternoon", "weekly", "2", "14:00", "17:00", 3),
+    # Pattern 3: Friday morning (1 hour)
+    ("Friday Morning", "weekly", "4", "10:00", "11:00", 1),
+    # Total: 7 hours
+]
+
+ALTERNATIVE_PATTERNS = [
+    # Alternative pattern set
+    ("Tuesday Morning", "weekly", "1", "09:00", "12:00", 3),
+    ("Thursday Afternoon", "weekly", "3", "13:00", "16:00", 3),
+    ("Friday Afternoon", "weekly", "4", "14:00", "15:00", 1),
+]
+
+ALTERNATIVE_PATTERNS_2 = [
+    # Another alternative
+    ("Monday Afternoon", "weekly", "0", "13:00", "16:00", 3),
+    ("Wednesday Morning", "weekly", "2", "09:00", "11:00", 2),
+    ("Friday Afternoon", "weekly", "4", "14:00", "16:00", 2),
+]
+
+ALL_PATTERN_SETS = [SAMPLE_PATTERNS, ALTERNATIVE_PATTERNS, ALTERNATIVE_PATTERNS_2]
+
+def add_sample_availability():
+    """Add sample availability patterns for all active practitioners"""
+    with app.app_context():
+        practitioners = User.query.filter_by(is_active=True).order_by(User.id).all()
+        
+        if not practitioners:
+            print("❌ No active practitioners found!")
+            return
+        
+        print(f"📋 Found {len(practitioners)} active practitioners")
+        
+        # Clear existing patterns first (optional - comment out if you want to keep existing)
+        # AvailabilityPattern.query.delete()
+        # db.session.commit()
+        # print("🗑️  Cleared existing patterns")
+        
+        pattern_set_index = 0
+        for practitioner in practitioners:
+            print(f"\n👤 Adding availability for: {practitioner.full_name} (ID: {practitioner.id})")
+            
+            # Check existing patterns
+            existing = AvailabilityPattern.query.filter_by(user_id=practitioner.id, is_active=True).all()
+            if existing:
+                print(f"   ⚠️  {len(existing)} existing patterns found. Skipping...")
+                continue
+            
+            # Get pattern set for this practitioner (rotate through sets)
+            pattern_set = ALL_PATTERN_SETS[pattern_set_index % len(ALL_PATTERN_SETS)]
+            pattern_set_index += 1
+            
+            total_hours = 0
+            patterns_created = 0
+            
+            for title, frequency, weekdays, start_str, end_str, hours in pattern_set:
+                if total_hours + hours > 7:
+                    print(f"   ⚠️  Skipping '{title}' - would exceed 7 hours/week limit")
+                    continue
+                
+                start_h, start_m = map(int, start_str.split(':'))
+                end_h, end_m = map(int, end_str.split(':'))
+                
+                pattern = AvailabilityPattern(
+                    user_id=practitioner.id,
+                    title=title,
+                    frequency=frequency,
+                    weekdays=weekdays,
+                    start_time=time(start_h, start_m),
+                    end_time=time(end_h, end_m),
+                    is_active=True,
+                    color=practitioner.calendar_color or None
+                )
+                
+                db.session.add(pattern)
+                total_hours += hours
+                patterns_created += 1
+                print(f"   ✅ Created: {title} ({start_str}-{end_str}, {hours}h) - Day: {weekdays}")
+            
+            db.session.commit()
+            print(f"   📊 Total: {patterns_created} patterns, {total_hours} hours/week")
+        
+        print(f"\n✅ Done! Added availability patterns for {len(practitioners)} practitioners")
+        
+        # Summary
+        print("\n📈 Summary:")
+        for practitioner in practitioners:
+            patterns = AvailabilityPattern.query.filter_by(user_id=practitioner.id, is_active=True).all()
+            total_hours = 0
+            for p in patterns:
+                hours = (p.end_time.hour * 60 + p.end_time.minute - (p.start_time.hour * 60 + p.start_time.minute)) / 60
+                total_hours += hours
+            print(f"   {practitioner.full_name}: {len(patterns)} patterns, {total_hours:.1f} hours/week")
+
+if __name__ == '__main__':
+    add_sample_availability()
+

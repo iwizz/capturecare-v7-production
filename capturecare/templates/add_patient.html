@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Add Patient - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-4xl font-bold mb-8 text-gray-800">
+        <i class="fas fa-user-plus text-brand-bright-teal mr-3"></i>
+        Add New Patient
+    </h1>
+
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <form method="POST" action="{{ url_for('add_patient') }}">
+            <div class="mb-6">
+                <label for="first_name" class="block text-gray-700 font-semibold mb-2">
+                    First Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="first_name" name="first_name" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="last_name" class="block text-gray-700 font-semibold mb-2">
+                    Last Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="last_name" name="last_name" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="email" class="block text-gray-700 font-semibold mb-2">
+                    Email <span class="text-red-500">*</span>
+                </label>
+                <input type="email" id="email" name="email" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="date_of_birth" class="block text-gray-700 font-semibold mb-2">
+                    Date of Birth
+                </label>
+                <input type="date" id="date_of_birth" name="date_of_birth"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="bg-brand-cream border border-brand-soft-blue rounded-lg p-4 mb-6">
+                <p class="text-sm text-brand-teal">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    After adding the patient, you can authorize their Withings devices and link to Cliniko records.
+                </p>
+            </div>
+
+            <div class="flex space-x-4">
+                <button type="submit" 
+                        class="flex-1 bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-save mr-2"></i>Add Patient
+                </button>
+                <a href="{{ url_for('patients_list') }}" 
+                   class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition font-semibold text-center">
+                    <i class="fas fa-times mr-2"></i>Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

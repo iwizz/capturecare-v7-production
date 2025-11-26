@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - CaptureCare®{% endblock %}
+
+{% block page_title %}User Management{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-brand-teal mb-2">
+                    <i class="fas fa-users-cog mr-2"></i>User Management
+                </h1>
+                <p class="text-gray-600">Manage system users and access permissions</p>
+            </div>
+            <button onclick="openAddUserModal()" 
+                    class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold shadow-md">
+                <i class="fas fa-user-plus mr-2"></i>Add User
+            </button>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-brand-light-gray">
+            <h2 class="text-xl font-bold text-brand-teal">
+                <i class="fas fa-list mr-2"></i>All Users ({{ users|length }})
+            </h2>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">User</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Role</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Admin</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Created</th>
+                        <th class="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200" id="usersTableBody">
+                    {% for user in users %}
+                    <tr class="hover:bg-gray-50 transition" data-user-id="{{ user.id }}">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center" 
+                                     style="background-color: {{ user.calendar_color }};">
+                                    <i class="fas fa-user text-white"></i>
+                                </div>
+                                <div class="ml-4">
+                                    <div class="text-sm font-semibold text-gray-900">{{ user.full_name }}</div>
+                                    <div class="text-sm text-gray-500">@{{ user.username }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900">{{ user.email }}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                {% if user.role == 'admin' %}bg-purple-100 text-purple-800
+                                {% elif user.role == 'practitioner' %}bg-blue-100 text-blue-800
+                                {% elif user.role == 'nurse' %}bg-green-100 text-green-800
+                                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                {{ user.role.title() }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                {% if user.is_active %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                                {% if user.is_active %}<i class="fas fa-check mr-1"></i>Active
+                                {% else %}<i class="fas fa-times mr-1"></i>Inactive{% endif %}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% if user.is_admin %}
+                                <i class="fas fa-shield-alt text-purple-600" title="Administrator"></i>
+                            {% else %}
+                                <i class="fas fa-minus text-gray-300"></i>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ user.created_at.strftime('%Y-%m-%d') }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick="editUser({{ user.id }})" 
+                                    class="text-blue-600 hover:text-blue-900 mr-3" 
+                                    title="Edit User">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            {% if user.id != current_user.id %}
+                            <button onclick="toggleUserActive({{ user.id }})" 
+                                    class="text-yellow-600 hover:text-yellow-900 mr-3" 
+                                    title="{% if user.is_active %}Deactivate{% else %}Activate{% endif %} User">
+                                <i class="fas fa-{% if user.is_active %}ban{% else %}check-circle{% endif %}"></i>
+                            </button>
+                            <button onclick="deleteUser({{ user.id }}, '{{ user.username }}')" 
+                                    class="text-red-600 hover:text-red-900" 
+                                    title="Delete User">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            {% else %}
+                            <span class="text-gray-400 text-xs">(You)</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit User Modal -->
+<div id="userModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="bg-gradient-to-r from-brand-teal to-brand-bright-teal text-white p-6 rounded-t-lg sticky top-0">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-bold">
+                    <i class="fas fa-user-cog mr-2"></i>
+                    <span id="modalTitle">Add User</span>
+                </h2>
+                <button onclick="closeUserModal()" class="text-white hover:text-gray-200 text-2xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        
+        <form id="userForm" class="p-6">
+            <input type="hidden" id="userId" name="user_id">
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        <i class="fas fa-user mr-1"></i>First Name
+                    </label>
+                    <input type="text" id="firstName" name="first_name" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        <i class="fas fa-user mr-1"></i>Last Name
+                    </label>
+                    <input type="text" id="lastName" name="last_name" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-at mr-1"></i>Username
+                </label>
+                <input type="text" id="username" name="username" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-envelope mr-1"></i>Email
+                </label>
+                <input type="email" id="email" name="email" required
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-key mr-1"></i>Password <span id="passwordHint" class="text-xs text-gray-500">(Leave blank to keep current password)</span>
+                </label>
+                <input type="password" id="password" name="password"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        <i class="fas fa-briefcase mr-1"></i>Role
+                    </label>
+                    <select id="role" name="role"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                        <option value="admin">Admin</option>
+                        <option value="practitioner" selected>Practitioner</option>
+                        <option value="nurse">Nurse</option>
+                        <option value="receptionist">Receptionist</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                        <i class="fas fa-palette mr-1"></i>Calendar Color
+                    </label>
+                    <input type="color" id="calendarColor" name="calendar_color" value="#00698f"
+                           class="w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal h-10">
+                </div>
+            </div>
+            
+            <div class="mb-6">
+                <label class="flex items-center cursor-pointer">
+                    <input type="checkbox" id="isAdmin" name="is_admin" 
+                           class="w-4 h-4 text-brand-bright-teal border-gray-300 rounded focus:ring-brand-bright-teal">
+                    <span class="ml-2 text-sm font-semibold text-gray-700">
+                        <i class="fas fa-shield-alt mr-1"></i>Administrator Privileges
+                    </span>
+                </label>
+                <p class="text-xs text-gray-500 mt-1 ml-6">Admins can manage users and access all features</p>
+            </div>
+            
+            <div class="mb-6">
+                <label class="flex items-center cursor-pointer">
+                    <input type="checkbox" id="isActive" name="is_active" checked
+                           class="w-4 h-4 text-brand-bright-teal border-gray-300 rounded focus:ring-brand-bright-teal">
+                    <span class="ml-2 text-sm font-semibold text-gray-700">
+                        <i class="fas fa-check-circle mr-1"></i>Active Account
+                    </span>
+                </label>
+                <p class="text-xs text-gray-500 mt-1 ml-6">Inactive users cannot log in</p>
+            </div>
+            
+            <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <button type="button" onclick="closeUserModal()" 
+                        class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-semibold">
+                    <i class="fas fa-times mr-2"></i>Cancel
+                </button>
+                <button type="submit" 
+                        class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-save mr-2"></i>Save User
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let editingUserId = null;
+
+function openAddUserModal() {
+    editingUserId = null;
+    document.getElementById('modalTitle').textContent = 'Add User';
+    document.getElementById('userForm').reset();
+    document.getElementById('userId').value = '';
+    document.getElementById('password').required = true;
+    document.getElementById('passwordHint').classList.add('hidden');
+    document.getElementById('userModal').classList.remove('hidden');
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').classList.add('hidden');
+    editingUserId = null;
+}
+
+async function editUser(userId) {
+    editingUserId = userId;
+    document.getElementById('modalTitle').textContent = 'Edit User';
+    document.getElementById('password').required = false;
+    document.getElementById('passwordHint').classList.remove('hidden');
+    
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    const cells = row.querySelectorAll('td');
+    
+    const username = cells[0].querySelector('.text-gray-500').textContent.replace('@', '');
+    const fullName = cells[0].querySelector('.text-gray-900').textContent;
+    const email = cells[1].textContent.trim();
+    const role = cells[2].textContent.trim().toLowerCase();
+    const isActive = cells[3].textContent.includes('Active');
+    const isAdmin = cells[4].querySelector('.fa-shield-alt') !== null;
+    const color = row.querySelector('.flex-shrink-0').style.backgroundColor;
+    
+    const nameParts = fullName.split(' ');
+    document.getElementById('firstName').value = nameParts[0] || '';
+    document.getElementById('lastName').value = nameParts.slice(1).join(' ') || '';
+    document.getElementById('username').value = username;
+    document.getElementById('email').value = email;
+    document.getElementById('role').value = role;
+    document.getElementById('isAdmin').checked = isAdmin;
+    document.getElementById('isActive').checked = isActive;
+    document.getElementById('userId').value = userId;
+    
+    document.getElementById('userModal').classList.remove('hidden');
+}
+
+document.getElementById('userForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        username: document.getElementById('username').value,
+        email: document.getElementById('email').value,
+        first_name: document.getElementById('firstName').value,
+        last_name: document.getElementById('lastName').value,
+        role: document.getElementById('role').value,
+        is_admin: document.getElementById('isAdmin').checked,
+        is_active: document.getElementById('isActive').checked,
+        calendar_color: document.getElementById('calendarColor').value
+    };
+    
+    const password = document.getElementById('password').value;
+    if (password) {
+        formData.password = password;
+    }
+    
+    try {
+        const url = editingUserId ? `/api/users/${editingUserId}` : '/api/users';
+        const method = editingUserId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(editingUserId ? 'User updated successfully!' : 'User created successfully!');
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+});
+
+async function toggleUserActive(userId) {
+    if (!confirm('Are you sure you want to toggle this user\'s active status?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${userId}/toggle-active`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(data.message);
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function deleteUser(userId, username) {
+    if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${userId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(data.message);
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+</script>
+
+{% endblock %}

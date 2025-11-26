@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Generate Report - {{ patient.first_name }} {{ patient.last_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-4xl font-bold mb-8 text-gray-800">
+        <i class="fas fa-file-medical text-blue-600 mr-3"></i>
+        Generate Health Report
+    </h1>
+
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-2">Patient Information</h2>
+            <p class="text-gray-600">{{ patient.first_name }} {{ patient.last_name }}</p>
+            <p class="text-sm text-gray-500">{{ patient.email }}</p>
+        </div>
+
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <p class="text-sm text-blue-800">
+                <i class="fas fa-info-circle mr-2"></i>
+                This will generate an AI-powered health analysis report based on the patient's recent health data.
+                The report will include key observations, trends, recommendations, and personalized insights.
+            </p>
+        </div>
+
+        <form method="POST">
+            <div class="flex space-x-4">
+                <button type="submit" 
+                        class="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition font-semibold">
+                    <i class="fas fa-brain mr-2"></i>Generate AI Report
+                </button>
+                <a href="{{ url_for('patient_detail', patient_id=patient.id) }}" 
+                   class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition font-semibold text-center">
+                    <i class="fas fa-times mr-2"></i>Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

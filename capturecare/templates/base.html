@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CaptureCare® - Humanising Digital Health{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/logos/icon.png') }}">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Brand Colors */
+        :root {
+            --brand-cream: #e3dfd6;
+            --brand-soft-blue: #96b7c8;
+            --brand-charcoal: #3e4044;
+            --brand-teal: #265063;
+            --brand-light-gray: #f4f5f7;
+            --brand-bright-teal: #00698f;
+        }
+        #sidebar {
+            transition: width 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+        #sidebar.collapsed {
+            width: 80px;
+        }
+        #sidebar.collapsed .sidebar-text {
+            display: none;
+        }
+        #sidebar.collapsed .logo-text {
+            display: none;
+        }
+        #sidebar.collapsed .sidebar-icon {
+            margin: 0 auto;
+        }
+        .main-content {
+            transition: margin-left 0.3s ease-in-out;
+        }
+        .main-content.sidebar-collapsed {
+            margin-left: 80px;
+        }
+        @media (max-width: 768px) {
+            #sidebar.mobile-hidden {
+                transform: translateX(-100%);
+            }
+            #sidebar.collapsed {
+                width: 64px;
+            }
+            .main-content.sidebar-collapsed {
+                margin-left: 0;
+            }
+        }
+        .bg-brand-cream { background-color: var(--brand-cream); }
+        .bg-brand-soft-blue { background-color: var(--brand-soft-blue); }
+        .bg-brand-charcoal { background-color: var(--brand-charcoal); }
+        .bg-brand-teal { background-color: var(--brand-teal); }
+        .bg-brand-light-gray { background-color: var(--brand-light-gray); }
+        .bg-brand-bright-teal { background-color: var(--brand-bright-teal); }
+        .text-brand-cream { color: var(--brand-cream); }
+        .text-brand-soft-blue { color: var(--brand-soft-blue); }
+        .text-brand-charcoal { color: var(--brand-charcoal); }
+        .text-brand-teal { color: var(--brand-teal); }
+        .text-brand-bright-teal { color: var(--brand-bright-teal); }
+        .border-brand-cream { border-color: var(--brand-cream); }
+        .border-brand-soft-blue { border-color: var(--brand-soft-blue); }
+        .border-brand-teal { border-color: var(--brand-teal); }
+        .hover\:bg-brand-bright-teal:hover { background-color: var(--brand-bright-teal); }
+        .hover\:bg-brand-soft-blue:hover { background-color: var(--brand-soft-blue); }
+    </style>
+</head>
+<body class="bg-brand-light-gray">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="bg-brand-teal text-white w-64 fixed h-full flex flex-col shadow-xl z-50">
+            <!-- Top Section: Logo and Toggle -->
+            <div class="flex-shrink-0">
+                <!-- Logo -->
+                <div class="p-6 border-b border-brand-bright-teal">
+                    <div class="flex items-center space-x-3">
+                        <img src="{{ url_for('static', filename='images/logos/icon.png') }}" alt="CaptureCare" class="w-12 h-12 sidebar-icon">
+                        <div class="logo-text">
+                            <h1 class="text-xl font-bold">CaptureCare<sup class="text-xs">®</sup></h1>
+                            <p class="text-xs text-brand-soft-blue">Humanising Digital Health</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Collapse/Expand Toggle Button -->
+                <div class="px-4 py-2 border-b border-brand-bright-teal">
+                    <button id="sidebarCollapseToggle" 
+                            class="w-full flex items-center justify-center px-3 py-2 rounded-lg hover:bg-brand-bright-teal transition group"
+                            title="Toggle Sidebar">
+                        <i class="fas fa-angles-left text-lg sidebar-collapse-icon"></i>
+                        <span class="sidebar-text ml-2 font-medium">Collapse</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Navigation - Scrollable -->
+            <nav class="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+                <a href="{{ url_for('dashboard') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-chart-line text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Dashboard</span>
+                </a>
+
+                <a href="{{ url_for('patients_list') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-users text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">All Patients</span>
+                </a>
+
+                <a href="{{ url_for('add_patient') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-user-plus text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Add Patient</span>
+                </a>
+
+                <a href="{{ url_for('master_calendar') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-calendar-alt text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Calendar</span>
+                </a>
+
+                <a href="{{ url_for('communications') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-comments text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Communications</span>
+                </a>
+
+                <!-- Divider -->
+                <div class="border-t border-brand-soft-blue opacity-30 my-4 sidebar-divider"></div>
+
+                <div class="px-4 py-2 sidebar-text">
+                    <p class="text-xs font-semibold text-brand-soft-blue uppercase tracking-wide">Actions</p>
+                </div>
+
+                <form action="{{ url_for('api_sync_all') }}" method="POST" class="contents">
+                    <button type="submit" 
+                            class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group text-left">
+                        <i class="fas fa-sync text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                        <span class="font-medium sidebar-text">Sync All Data</span>
+                    </button>
+                </form>
+
+                <!-- Divider -->
+                <div class="border-t border-brand-soft-blue opacity-30 my-4 sidebar-divider"></div>
+
+                <a href="{{ url_for('settings') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-cog text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Settings</span>
+                </a>
+
+                <a href="{{ url_for('my_availability') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-calendar-check text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">My Availability</span>
+                </a>
+
+                {% if current_user.is_authenticated and current_user.is_admin %}
+                <a href="{{ url_for('user_management') }}" 
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-users-cog text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">User Management</span>
+                </a>
+                {% endif %}
+            </nav>
+
+            <!-- Footer - Fixed at Bottom -->
+            <div class="flex-shrink-0 p-4 border-t border-brand-soft-blue opacity-30 bg-brand-charcoal">
+                {% if current_user.is_authenticated %}
+                <div class="flex items-center space-x-3 px-4 py-2 mb-2">
+                    <div class="bg-brand-bright-teal rounded-full w-8 h-8 flex items-center justify-center sidebar-icon flex-shrink-0">
+                        <i class="fas fa-user text-sm"></i>
+                    </div>
+                    <div class="flex-1 sidebar-text min-w-0">
+                        <p class="text-sm font-medium truncate">{{ current_user.full_name }}</p>
+                        <p class="text-xs text-brand-soft-blue">{{ current_user.role.title() }}</p>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" 
+                   class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-red-600 transition group text-sm">
+                    <i class="fas fa-sign-out-alt sidebar-icon flex-shrink-0"></i>
+                    <span class="sidebar-text">Logout</span>
+                </a>
+                {% else %}
+                <div class="flex items-center space-x-3 px-4 py-2">
+                    <div class="bg-brand-bright-teal rounded-full w-8 h-8 flex items-center justify-center sidebar-icon flex-shrink-0">
+                        <i class="fas fa-user text-sm"></i>
+                    </div>
+                    <div class="flex-1 sidebar-text min-w-0">
+                        <p class="text-sm font-medium">Guest</p>
+                        <p class="text-xs text-brand-soft-blue">Not logged in</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <div id="mainContent" class="flex-1 flex flex-col ml-64 main-content">
+            <!-- Top Bar -->
+            <header class="bg-white shadow-sm border-b border-brand-cream sticky top-0 z-40">
+                <div class="px-6 py-4 flex items-center justify-between">
+                    <button id="sidebarToggle" class="md:hidden text-brand-charcoal hover:text-brand-bright-teal">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                    <div class="flex-1 flex items-center justify-between">
+                        <h2 class="text-xl font-semibold text-brand-charcoal">
+                            {% block page_title %}{% endblock %}
+                        </h2>
+                        <div class="flex items-center space-x-4">
+                            <span class="text-sm text-brand-teal">
+                                <i class="fas fa-clock mr-1"></i>
+                                <span id="currentTime"></span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="px-6 pt-4">
+                        {% for category, message in messages %}
+                            <div class="{% if category == 'error' %}bg-red-100 border-red-400 text-red-700{% else %}bg-green-100 border-green-400 text-green-700{% endif %} border px-4 py-3 rounded relative mb-4" role="alert">
+                                <span class="block sm:inline">{{ message }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <!-- Page Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+                {% block content %}{% endblock %}
+            </main>
+
+            <!-- Footer -->
+            <footer class="bg-white border-t border-gray-200 py-4 px-6">
+                <div class="text-center text-sm text-gray-600">
+                    <p>&copy; 2025 CaptureCare Health System. All rights reserved.</p>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Mobile Overlay -->
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden md:hidden"></div>
+
+    <script>
+        // Sidebar elements
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebarCollapseToggle = document.getElementById('sidebarCollapseToggle');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        const mainContent = document.getElementById('mainContent');
+        const collapseIcon = document.querySelector('.sidebar-collapse-icon');
+
+        // Load sidebar state from localStorage
+        const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+        if (sidebarCollapsed) {
+            sidebar.classList.add('collapsed');
+            mainContent.classList.add('sidebar-collapsed');
+            if (collapseIcon) {
+                collapseIcon.classList.remove('fa-angles-left');
+                collapseIcon.classList.add('fa-angles-right');
+            }
+        }
+
+        // Desktop/All screens: Collapse/Expand toggle
+        if (sidebarCollapseToggle) {
+            sidebarCollapseToggle.addEventListener('click', () => {
+                const isCollapsed = sidebar.classList.toggle('collapsed');
+                mainContent.classList.toggle('sidebar-collapsed');
+                
+                // Update icon
+                if (collapseIcon) {
+                    if (isCollapsed) {
+                        collapseIcon.classList.remove('fa-angles-left');
+                        collapseIcon.classList.add('fa-angles-right');
+                    } else {
+                        collapseIcon.classList.remove('fa-angles-right');
+                        collapseIcon.classList.add('fa-angles-left');
+                    }
+                }
+                
+                // Save state to localStorage
+                localStorage.setItem('sidebarCollapsed', isCollapsed);
+            });
+        }
+
+        // Mobile: Toggle sidebar visibility
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.toggle('mobile-hidden');
+                sidebarOverlay.classList.toggle('hidden');
+            });
+        }
+
+        if (sidebarOverlay) {
+            sidebarOverlay.addEventListener('click', () => {
+                sidebar.classList.add('mobile-hidden');
+                sidebarOverlay.classList.add('hidden');
+            });
+        }
+
+        // Update current time
+        function updateTime() {
+            const now = new Date();
+            const options = { 
+                timeZone: 'Australia/Sydney',
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            };
+            const timeStr = now.toLocaleTimeString('en-AU', options);
+            const dateStr = now.toLocaleDateString('en-AU', { timeZone: 'Australia/Sydney', month: 'short', day: 'numeric' });
+            document.getElementById('currentTime').textContent = `${dateStr}, ${timeStr} AEST`;
+        }
+        
+        updateTime();
+        setInterval(updateTime, 60000); // Update every minute
+
+        // Highlight active nav item
+        const currentPath = window.location.pathname;
+        document.querySelectorAll('#sidebar nav a').forEach(link => {
+            if (link.getAttribute('href') === currentPath) {
+                link.classList.add('bg-blue-700', 'border-l-4', 'border-white');
+            }
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

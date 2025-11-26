@@ -1,0 +1,479 @@
+{% extends "base.html" %}
+
+{% block title %}Communications - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">
+            <i class="fas fa-comments mr-3 text-brand-bright-teal"></i>
+            Communications
+        </h1>
+        <p class="text-gray-600">View all SMS and email correspondence with patients</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Channel Filter -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Channel</label>
+                <select id="channelFilter" onchange="loadCorrespondence()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">All Channels</option>
+                    <option value="sms">📱 SMS Only</option>
+                    <option value="email">📧 Email Only</option>
+                </select>
+            </div>
+
+            <!-- Direction Filter -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Direction</label>
+                <select id="directionFilter" onchange="loadCorrespondence()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">All Directions</option>
+                    <option value="inbound">⬇️ Inbound</option>
+                    <option value="outbound">⬆️ Outbound</option>
+                </select>
+            </div>
+
+            <!-- Patient Search -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Search Patient</label>
+                <input type="text" id="patientSearch" placeholder="Name or email..." 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent"
+                       onkeyup="searchDebounce()">
+            </div>
+
+            <!-- Workflow Status Filter -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Workflow Status</label>
+                <select id="statusFilter" onchange="loadCorrespondence()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">All Status</option>
+                    <option value="pending">⏳ Pending</option>
+                    <option value="completed">✅ Completed</option>
+                    <option value="follow_up_needed">🔔 Follow-up Needed</option>
+                    <option value="no_action_required">✔️ No Action Required</option>
+                </select>
+            </div>
+
+            <!-- Refresh Button -->
+            <div class="flex items-end">
+                <button onclick="loadCorrespondence()" class="w-full px-4 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-sync-alt mr-2"></i>Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Correspondence List -->
+    <div class="bg-white rounded-lg shadow-md">
+        <!-- Header -->
+        <div class="p-6 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <span id="correspondenceCount">0</span> Messages
+                </h2>
+                <div class="text-sm text-gray-600">
+                    <span id="loadingIndicator" class="hidden">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>Loading...
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Correspondence Items -->
+        <div id="correspondenceList" class="divide-y divide-gray-200">
+            <div class="p-8 text-center text-gray-500">
+                <i class="fas fa-envelope text-4xl mb-3 text-gray-300"></i>
+                <p>Loading correspondence...</p>
+            </div>
+        </div>
+
+        <!-- Load More Button -->
+        <div id="loadMoreContainer" class="p-6 text-center hidden">
+            <button onclick="loadMore()" class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
+                <i class="fas fa-chevron-down mr-2"></i>Load More
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Message Detail Modal -->
+<div id="messageModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b border-gray-200 sticky top-0 bg-white">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800" id="modalTitle">Message Details</h3>
+                    <p class="text-sm text-gray-600 mt-1" id="modalPatient"></p>
+                </div>
+                <button onclick="closeMessageModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+        <div class="p-6">
+            <!-- Channel & Direction -->
+            <div class="flex items-center gap-4 mb-4">
+                <span id="modalChannel" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+                <span id="modalDirection" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+                <span id="modalStatus" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+            </div>
+
+            <!-- Subject (Email only) -->
+            <div id="modalSubjectContainer" class="mb-4 hidden">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
+                <p id="modalSubject" class="text-gray-800"></p>
+            </div>
+
+            <!-- Contact Info -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Contact</label>
+                <p id="modalContact" class="text-gray-800"></p>
+            </div>
+
+            <!-- Message Body -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Message</label>
+                <div id="modalBody" class="text-gray-800 whitespace-pre-wrap bg-gray-50 p-4 rounded-lg border border-gray-200"></div>
+            </div>
+
+            <!-- Timestamps -->
+            <div class="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                <div>
+                    <label class="font-semibold">Sent:</label>
+                    <p id="modalSentAt"></p>
+                </div>
+                <div id="modalDeliveredContainer" class="hidden">
+                    <label class="font-semibold">Delivered:</label>
+                    <p id="modalDeliveredAt"></p>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="modalErrorContainer" class="mt-4 hidden">
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p class="text-sm font-semibold text-red-800 mb-1">Error</p>
+                    <p id="modalError" class="text-sm text-red-600"></p>
+                </div>
+            </div>
+
+            <!-- View Patient Button -->
+            <div class="mt-6">
+                <a id="viewPatientBtn" href="#" class="block w-full px-4 py-3 bg-brand-bright-teal text-white text-center rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-user mr-2"></i>View Patient Record
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentOffset = 0;
+const limit = 50;
+let totalMessages = 0;
+let searchTimeout = null;
+
+// Load correspondence on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadCorrespondence();
+});
+
+function searchDebounce() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        loadCorrespondence();
+    }, 500);
+}
+
+async function updateWorkflowStatus(correspondenceId, newStatus, event) {
+    event.stopPropagation();
+    
+    try {
+        const response = await fetch(`/api/correspondence/${correspondenceId}/workflow-status`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                workflow_status: newStatus
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update the dropdown color
+            const select = event.target;
+            const statusMap = {
+                'pending': 'bg-yellow-100 text-yellow-800',
+                'completed': 'bg-green-100 text-green-800',
+                'follow_up_needed': 'bg-red-100 text-red-800',
+                'no_action_required': 'bg-gray-100 text-gray-800'
+            };
+            select.className = `px-3 py-1 rounded-lg text-xs font-semibold border-0 cursor-pointer ${statusMap[newStatus]}`;
+        } else {
+            alert('Failed to update status: ' + data.error);
+            // Reload to reset the dropdown
+            loadCorrespondence();
+        }
+    } catch (error) {
+        console.error('Error updating workflow status:', error);
+        alert('Failed to update status');
+        loadCorrespondence();
+    }
+}
+
+async function loadCorrespondence(append = false) {
+    const channel = document.getElementById('channelFilter').value;
+    const direction = document.getElementById('directionFilter').value;
+    const patientSearch = document.getElementById('patientSearch').value;
+    const workflowStatus = document.getElementById('statusFilter').value;
+    
+    if (!append) {
+        currentOffset = 0;
+    }
+    
+    document.getElementById('loadingIndicator').classList.remove('hidden');
+    
+    try {
+        const params = new URLSearchParams({
+            channel: channel,
+            direction: direction,
+            patient_search: patientSearch,
+            workflow_status: workflowStatus,
+            limit: limit,
+            offset: currentOffset
+        });
+        
+        const response = await fetch(`/api/correspondence/all?${params}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            totalMessages = data.total;
+            document.getElementById('correspondenceCount').textContent = totalMessages;
+            
+            if (append) {
+                appendCorrespondence(data.correspondence);
+            } else {
+                renderCorrespondence(data.correspondence);
+            }
+            
+            // Show/hide load more button
+            if (currentOffset + limit < totalMessages) {
+                document.getElementById('loadMoreContainer').classList.remove('hidden');
+            } else {
+                document.getElementById('loadMoreContainer').classList.add('hidden');
+            }
+        }
+    } catch (error) {
+        console.error('Error loading correspondence:', error);
+        document.getElementById('correspondenceList').innerHTML = `
+            <div class="p-8 text-center text-red-500">
+                <i class="fas fa-exclamation-circle text-4xl mb-3"></i>
+                <p>Error loading correspondence</p>
+            </div>
+        `;
+    } finally {
+        document.getElementById('loadingIndicator').classList.add('hidden');
+    }
+}
+
+function renderCorrespondence(correspondence) {
+    const list = document.getElementById('correspondenceList');
+    
+    if (correspondence.length === 0) {
+        list.innerHTML = `
+            <div class="p-8 text-center text-gray-500">
+                <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+                <p>No correspondence found</p>
+            </div>
+        `;
+        return;
+    }
+    
+    list.innerHTML = correspondence.map(msg => createCorrespondenceCard(msg)).join('');
+}
+
+function appendCorrespondence(correspondence) {
+    const list = document.getElementById('correspondenceList');
+    const newHtml = correspondence.map(msg => createCorrespondenceCard(msg)).join('');
+    list.insertAdjacentHTML('beforeend', newHtml);
+}
+
+function createCorrespondenceCard(msg) {
+    const channelIcon = msg.channel === 'sms' ? 'fa-sms' : 'fa-envelope';
+    const channelColor = msg.channel === 'sms' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
+    const directionIcon = msg.direction === 'inbound' ? 'fa-arrow-down' : 'fa-arrow-up';
+    const directionColor = msg.direction === 'inbound' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800';
+    
+    // Show "sent" instead of "queued" for better UX
+    const displayStatus = msg.status === 'queued' ? 'sent' : msg.status;
+    const statusColor = displayStatus === 'failed' ? 'text-red-600' : 
+                       displayStatus === 'delivered' ? 'text-green-600' : 
+                       displayStatus === 'sent' ? 'text-blue-600' : 'text-gray-600';
+    
+    const preview = msg.body ? msg.body.substring(0, 100) + (msg.body.length > 100 ? '...' : '') : '';
+    
+    // Workflow status styling
+    const workflowStatusMap = {
+        'pending': { emoji: '⏳', color: 'bg-yellow-100 text-yellow-800' },
+        'completed': { emoji: '✅', color: 'bg-green-100 text-green-800' },
+        'follow_up_needed': { emoji: '🔔', color: 'bg-red-100 text-red-800' },
+        'no_action_required': { emoji: '✔️', color: 'bg-gray-100 text-gray-800' }
+    };
+    const workflowInfo = workflowStatusMap[msg.workflow_status] || workflowStatusMap['pending'];
+    
+    return `
+        <div class="p-4 border-b border-gray-200 hover:bg-gray-50 transition">
+            <div class="flex items-start gap-4">
+                <div class="flex-shrink-0">
+                    <i class="fas ${channelIcon} text-2xl text-gray-400"></i>
+                </div>
+                <div class="flex-grow min-w-0 cursor-pointer" onclick='window.location.href="/patients/${msg.patient_id}#correspondence"'>
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="font-semibold text-gray-800 hover:text-brand-bright-teal">${msg.patient_name}</span>
+                        <span class="px-2 py-1 rounded-full text-xs font-semibold ${channelColor}">
+                            ${msg.channel.toUpperCase()}
+                        </span>
+                        <span class="px-2 py-1 rounded-full text-xs font-semibold ${directionColor}">
+                            <i class="fas ${directionIcon} mr-1"></i>${msg.direction}
+                        </span>
+                    </div>
+                    ${msg.subject ? `<p class="text-sm font-medium text-gray-700 mb-1">${msg.subject}</p>` : ''}
+                    <p class="text-sm text-gray-600 mb-2">${preview}</p>
+                    <div class="flex items-center gap-3 text-xs text-gray-500">
+                        <span><i class="far fa-clock mr-1"></i>${msg.sent_at} AEDT</span>
+                        <span class="${statusColor}"><i class="fas fa-circle mr-1 text-xs"></i>${displayStatus || 'unknown'}</span>
+                    </div>
+                </div>
+                <div class="flex-shrink-0">
+                    <select 
+                        class="px-3 py-1 rounded-lg text-xs font-semibold border-0 cursor-pointer ${workflowInfo.color}"
+                        onchange="updateWorkflowStatus(${msg.id}, this.value, event)"
+                        onclick="event.stopPropagation()">
+                        <option value="pending" ${msg.workflow_status === 'pending' ? 'selected' : ''}>⏳ Pending</option>
+                        <option value="completed" ${msg.workflow_status === 'completed' ? 'selected' : ''}>✅ Completed</option>
+                        <option value="follow_up_needed" ${msg.workflow_status === 'follow_up_needed' ? 'selected' : ''}>🔔 Follow-up</option>
+                        <option value="no_action_required" ${msg.workflow_status === 'no_action_required' ? 'selected' : ''}>✔️ No Action</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function viewMessage(msg) {
+    // Set modal content
+    document.getElementById('modalTitle').textContent = msg.channel === 'sms' ? 'SMS Message' : 'Email Message';
+    document.getElementById('modalPatient').textContent = `Patient: ${msg.patient_name}`;
+    
+    // Channel badge
+    const channelBadge = document.getElementById('modalChannel');
+    channelBadge.textContent = msg.channel.toUpperCase();
+    channelBadge.className = `px-3 py-1 rounded-full text-sm font-semibold ${
+        msg.channel === 'sms' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+    }`;
+    
+    // Direction badge
+    const directionBadge = document.getElementById('modalDirection');
+    directionBadge.textContent = msg.direction.toUpperCase();
+    directionBadge.className = `px-3 py-1 rounded-full text-sm font-semibold ${
+        msg.direction === 'inbound' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800'
+    }`;
+    
+    // Status badge
+    const statusBadge = document.getElementById('modalStatus');
+    statusBadge.textContent = msg.status || 'unknown';
+    statusBadge.className = `px-3 py-1 rounded-full text-sm font-semibold ${
+        msg.status === 'failed' ? 'bg-red-100 text-red-800' :
+        msg.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+    }`;
+    
+    // Subject (email only)
+    if (msg.subject) {
+        document.getElementById('modalSubject').textContent = msg.subject;
+        document.getElementById('modalSubjectContainer').classList.remove('hidden');
+    } else {
+        document.getElementById('modalSubjectContainer').classList.add('hidden');
+    }
+    
+    // Contact info
+    const contact = msg.channel === 'sms' 
+        ? (msg.direction === 'inbound' ? msg.sender_phone : msg.recipient_phone)
+        : (msg.direction === 'inbound' ? msg.sender_email : msg.recipient_email);
+    document.getElementById('modalContact').textContent = contact || 'N/A';
+    
+    // Message body
+    document.getElementById('modalBody').textContent = msg.body || 'No message content';
+    
+    // Timestamps (already in AEST from backend)
+    document.getElementById('modalSentAt').textContent = msg.sent_at + ' AEDT';
+    if (msg.delivered_at) {
+        document.getElementById('modalDeliveredAt').textContent = msg.delivered_at + ' AEDT';
+        document.getElementById('modalDeliveredContainer').classList.remove('hidden');
+    } else {
+        document.getElementById('modalDeliveredContainer').classList.add('hidden');
+    }
+    
+    // Error message
+    if (msg.error_message) {
+        document.getElementById('modalError').textContent = msg.error_message;
+        document.getElementById('modalErrorContainer').classList.remove('hidden');
+    } else {
+        document.getElementById('modalErrorContainer').classList.add('hidden');
+    }
+    
+    // View patient button
+    document.getElementById('viewPatientBtn').href = `/patients/${msg.patient_id}`;
+    
+    // Show modal
+    document.getElementById('messageModal').classList.remove('hidden');
+}
+
+function closeMessageModal() {
+    document.getElementById('messageModal').classList.add('hidden');
+}
+
+function loadMore() {
+    currentOffset += limit;
+    loadCorrespondence(true);
+}
+
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    const intervals = {
+        year: 31536000,
+        month: 2592000,
+        week: 604800,
+        day: 86400,
+        hour: 3600,
+        minute: 60
+    };
+    
+    for (const [name, value] of Object.entries(intervals)) {
+        const interval = Math.floor(seconds / value);
+        if (interval >= 1) {
+            return interval === 1 ? `1 ${name} ago` : `${interval} ${name}s ago`;
+        }
+    }
+    
+    return 'Just now';
+}
+
+// Close modal on ESC key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeMessageModal();
+    }
+});
+
+// Close modal on background click
+document.getElementById('messageModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeMessageModal();
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,772 @@
+#!/usr/bin/env python3
+"""
+Module 1: withings_auth.py - FINAL FIXED VERSION
+Purpose: Handles OAuth2 authentication flow with Withings API
+Author: Capturecare Health Bridge
+FIXED: Correct endpoint + Multiple scopes for comprehensive health data access
+"""
+
+import os
+import json
+import time
+import requests
+import secrets
+import hmac
+import hashlib
+from urllib.parse import urlencode, parse_qs
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import logging
+import traceback
+
+# Load environment variables
+load_dotenv('capturecare.env')
+
+# Create the logger
+logger = logging.getLogger(__name__)
+
+class WithingsAuth:
+    def __init__(self):
+        """Initialize Withings OAuth handler with environment variables"""
+        self.client_id = os.getenv('WITHINGS_CLIENT_ID')
+        self.client_secret = os.getenv('WITHINGS_CLIENT_SECRET')
+        self.redirect_uri = os.getenv('WITHINGS_REDIRECT_URI')
+        self.tokens_dir = os.getenv('TOKENS_DIR', 'tokens')
+        
+        # ✅ FIXED: Correct Withings OAuth endpoints
+        self.auth_url = "https://account.withings.com/oauth2_user/authorize2"  # ✅ Fixed endpoint
+        self.token_url = "https://wbsapi.withings.net/v2/oauth2"
+        
+        # Create tokens directory if it doesn't exist
+        os.makedirs(self.tokens_dir, exist_ok=True)
+        
+        # Validate required environment variables
+        self._validate_config()
+        
+        print(f"✅ WithingsAuth initialized")
+        print(f"🔗 Auth URL: {self.auth_url}")
+        print(f"📧 Redirect URI: {self.redirect_uri}")
+    
+    def _validate_config(self):
+        """Validate that all required configuration is present"""
+        required_vars = [
+            ('WITHINGS_CLIENT_ID', self.client_id),
+            ('WITHINGS_CLIENT_SECRET', self.client_secret),
+            ('WITHINGS_REDIRECT_URI', self.redirect_uri)
+        ]
+        
+        missing_vars = [var_name for var_name, var_value in required_vars if not var_value]
+        
+        if missing_vars:
+            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+        
+        print("✅ Withings OAuth configuration validated")
+    
+    def _generate_signature(self, params):
+        """
+        Generate HMAC-SHA256 signature for Withings API request
+        
+        Args:
+            params (dict): Request parameters
+            
+        Returns:
+            str: Generated signature
+        """
+        # Sort parameters by key
+        sorted_params = sorted(params.items())
+        
+        # Create query string
+        query_string = '&'.join([f"{k}={v}" for k, v in sorted_params])
+        
+        # Generate HMAC-SHA256 signature
+        signature = hmac.new(
+            self.client_secret.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return signature
+    
+    def generate_auth_url(self, patient_email):
+        """
+        Generate authorization URL for a patient to authorize Withings access
+        ✅ FIXED: Correct endpoint + EXPANDED SCOPES for comprehensive health data
+        
+        Scopes requested:
+        - user.info: Basic user information (name, email, timezone, etc.)
+        - user.metrics: Health measurements (weight, BP, heart rate, body composition, etc.)
+        - user.activity: Activity data (steps, sleep, workouts, distance, etc.)
+        
+        Args:
+            patient_email (str): Patient's email address (used as state parameter)
+            
+        Returns:
+            str: Authorization URL for patient to visit
+        """
+        # Generate a secure state parameter (combines email with random string for security)
+        state = f"{patient_email}_{secrets.token_urlsafe(16)}"
+        
+        # Store state for verification later
+        self._store_auth_state(state, patient_email)
+        
+        # ✅ FIXED: Correct Withings OAuth2 parameters with EXPANDED SCOPES
+        params = {
+            'response_type': 'code',
+            'client_id': self.client_id,
+            'redirect_uri': self.redirect_uri,
+            'scope': 'user.info,user.metrics,user.activity',  # ✅ MULTIPLE SCOPES for comprehensive health data
+            'state': state
+        }
+        
+        # ✅ FIXED: Build URL with correct endpoint
+        auth_url = f"{self.auth_url}?{urlencode(params)}"
+        
+        print(f"📧 Generated auth URL for {patient_email}")
+        print(f"🔗 URL format check:")
+        print(f"   Should start with: https://account.withings.com/oauth2_user/authorize2")
+        print(f"   Actually starts with: {auth_url[:60]}...")
+        print(f"   Scopes requested: user.info, user.metrics, user.activity")
+        print(f"   Full URL: {auth_url}")
+        
+        # ✅ Verify URL format
+        if not auth_url.startswith("https://account.withings.com/oauth2_user/authorize2"):
+            print("❌ WARNING: Generated URL doesn't match expected format!")
+        else:
+            print("✅ URL format is correct!")
+        
+        # ✅ Verify scopes are included
+        if 'user.info%2Cuser.metrics%2Cuser.activity' in auth_url:
+            print("✅ All scopes included in URL!")
+        else:
+            print("⚠️ WARNING: Not all scopes found in URL")
+        
+        return auth_url
+    
+    def _store_auth_state(self, state, patient_email):
+        """Store auth state for verification"""
+        state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+        
+        # Load existing states or create new dict
+        try:
+            with open(state_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    states = json.loads(content)
+                else:
+                    states = {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            states = {}
+        
+        # Store state with timestamp
+        states[state] = {
+            'patient_email': patient_email,
+            'created_at': datetime.now().isoformat(),
+            'expires_at': (datetime.now() + timedelta(minutes=10)).isoformat()
+        }
+        
+        # Save updated states
+        with open(state_file, 'w') as f:
+            json.dump(states, f, indent=2)
+    
+    def exchange_code_for_tokens(self, code, state):
+        """
+        Exchange authorization code for access and refresh tokens
+        
+        Args:
+            code (str): Authorization code from Withings
+            state (str): State parameter for verification
+            
+        Returns:
+            dict: Token information including patient email
+        """
+        # Verify state parameter
+        patient_email = self._verify_auth_state(state)
+        if not patient_email:
+            raise ValueError("Invalid or expired state parameter")
+        
+        # Prepare token exchange request
+        data = {
+            'action': 'requesttoken',
+            'grant_type': 'authorization_code',
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'code': code,
+            'redirect_uri': self.redirect_uri
+        }
+        
+        # Add signature
+        data['signature'] = self._generate_signature(data)
+        
+        print(f"🔄 Exchanging authorization code for tokens...")
+        
+        try:
+            response = requests.post(self.token_url, data=data)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if result.get('status') != 0:
+                raise Exception(f"Withings API error: {result.get('error', 'Unknown error')}")
+            
+            token_data = result['body']
+            
+            # Add metadata
+            token_data.update({
+                'patient_email': patient_email,
+                'created_at': datetime.now().isoformat(),
+                'expires_at': (datetime.now() + timedelta(seconds=token_data['expires_in'])).isoformat()
+            })
+            
+            # Store tokens
+            self._store_tokens(patient_email, token_data)
+            
+            print(f"✅ Successfully obtained tokens for {patient_email}")
+            return token_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Network error during token exchange: {e}")
+            raise
+        except Exception as e:
+            print(f"❌ Error during token exchange: {e}")
+            raise
+    
+    def _verify_auth_state(self, state):
+        """Verify auth state and return patient email"""
+        state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+        
+        try:
+            with open(state_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    states = json.loads(content)
+                else:
+                    return None
+            
+            state_info = states.get(state)
+            if not state_info:
+                return None
+            
+            # Check if state has expired
+            expires_at = datetime.fromisoformat(state_info['expires_at'])
+            if datetime.now() > expires_at:
+                print("⚠️ Auth state has expired")
+                return None
+            
+            # Clean up used state
+            del states[state]
+            with open(state_file, 'w') as f:
+                json.dump(states, f, indent=2)
+            
+            return state_info['patient_email']
+            
+        except FileNotFoundError:
+            return None
+    
+    def _store_tokens(self, patient_email, token_data):
+        """Store tokens for a patient"""
+        # Create safe filename from email
+        safe_email = patient_email.replace('@', '_at_').replace('.', '_dot_')
+        token_file = os.path.join(self.tokens_dir, f"{safe_email}_tokens.json")
+        
+        with open(token_file, 'w') as f:
+            json.dump(token_data, f, indent=2)
+        
+        print(f"💾 Tokens stored for {patient_email}")
+    
+    def get_valid_token(self, patient_email):
+        """
+        Get a valid access token for a patient (refresh if necessary)
+        
+        Args:
+            patient_email (str): Patient's email address
+            
+        Returns:
+            str: Valid access token or None if no valid token available
+        """
+        safe_email = patient_email.replace('@', '_at_').replace('.', '_dot_')
+        token_file = os.path.join(self.tokens_dir, f"{safe_email}_tokens.json")
+        
+        try:
+            with open(token_file, 'r') as f:
+                token_data = json.load(f)
+            
+            # Check if token is still valid
+            expires_at = datetime.fromisoformat(token_data['expires_at'])
+            
+            # If token expires in less than 5 minutes, refresh it
+            if datetime.now() + timedelta(minutes=5) >= expires_at:
+                print(f"🔄 Refreshing token for {patient_email}")
+                token_data = self._refresh_token_internal(patient_email, token_data['refresh_token'])
+            
+            return token_data['access_token']
+            
+        except FileNotFoundError:
+            print(f"❌ No tokens found for {patient_email}")
+            return None
+        except Exception as e:
+            print(f"❌ Error getting token for {patient_email}: {e}")
+            return None
+    
+    def _refresh_token_internal(self, patient_email, refresh_token):
+        """Internal method to refresh an expired access token"""
+        data = {
+            'action': 'requesttoken',
+            'grant_type': 'refresh_token',
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'refresh_token': refresh_token
+        }
+        
+        # Add signature
+        data['signature'] = self._generate_signature(data)
+        
+        try:
+            response = requests.post(self.token_url, data=data)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if result.get('status') != 0:
+                raise Exception(f"Withings API error: {result.get('error', 'Unknown error')}")
+            
+            token_data = result['body']
+            
+            # LOG WHAT WITHINGS ACTUALLY RETURNS
+            actual_expires_in = token_data.get('expires_in')
+            print(f"🔍 Withings API returned expires_in: {actual_expires_in}")
+            
+            # Don't use hardcoded fallback - trust Withings or error if missing
+            if actual_expires_in is None:
+                print(f"⚠️  WARNING: Withings did not return expires_in value!")
+                # Use 24 hours as emergency fallback instead of 3 hours
+                actual_expires_in = 86400  # 24 hours
+                print(f"🆘 Using emergency 24-hour fallback: {actual_expires_in}")
+            
+            # Add metadata
+            token_data.update({
+                'patient_email': patient_email,
+                'created_at': datetime.now().isoformat(),
+                'expires_at': (datetime.now() + timedelta(seconds=actual_expires_in)).isoformat()
+            })
+            
+            # Store refreshed tokens
+            self._store_tokens(patient_email, token_data)
+            
+            print(f"✅ Token refreshed for {patient_email}")
+            print(f"📅 Token will expire at: {token_data['expires_at']}")
+            print(f"⏳ Token lifetime: {actual_expires_in} seconds ({actual_expires_in/3600:.1f} hours)")
+            return token_data
+            
+        except Exception as e:
+            print(f"❌ Error refreshing token for {patient_email}: {e}")
+            raise
+    
+    def list_authorized_patients(self):
+        """List all patients with stored tokens"""
+        if not os.path.exists(self.tokens_dir):
+            return []
+        
+        patients = []
+        for filename in os.listdir(self.tokens_dir):
+            if filename.endswith('_tokens.json'):
+                try:
+                    with open(os.path.join(self.tokens_dir, filename), 'r') as f:
+                        token_data = json.load(f)
+                    
+                    # Check token status
+                    expires_at = datetime.fromisoformat(token_data['expires_at'])
+                    is_expired = datetime.now() > expires_at
+                    
+                    patients.append({
+                        'email': token_data['patient_email'],
+                        'authorized_at': token_data['created_at'],
+                        'expires_at': token_data['expires_at'],
+                        'is_expired': is_expired,
+                        'status': 'expired' if is_expired else 'active'
+                    })
+                except Exception as e:
+                    print(f"⚠️ Error reading token file {filename}: {e}")
+        
+        return patients
+    
+    def _get_token_file_path(self, email):
+        """Get the file path for storing user tokens - FIXED to match existing naming"""
+        safe_email = email.replace('@', '_at_').replace('.', '_dot_')
+        # Use the same tokens_dir as defined in __init__
+        return os.path.join(self.tokens_dir, f"{safe_email}_tokens.json")
+
+    def load_token(self, email):
+        """
+        Load token data for a specific user
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            dict: Token data or None if not found
+        """
+        try:
+            token_file = self._get_token_file_path(email)
+            logger.info(f"🔍 Looking for token file: {token_file}")
+            
+            if not os.path.exists(token_file):
+                logger.warning(f"No token file found for {email} at {token_file}")
+                return None
+            
+            with open(token_file, 'r') as f:
+                token_data = json.load(f)
+            
+            logger.info(f"✅ Loaded token for {email}")
+            return token_data
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading token for {email}: {e}")
+            return None
+
+    def save_token(self, email, token_data):
+        """
+        Save token data for a specific user
+        
+        Args:
+            email: User's email address
+            token_data: Token data dictionary
+        
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            # Create tokens directory if it doesn't exist
+            os.makedirs(self.tokens_dir, exist_ok=True)
+            
+            token_file = self._get_token_file_path(email)
+            
+            with open(token_file, 'w') as f:
+                json.dump(token_data, f, indent=2)
+            
+            logger.info(f"✅ Saved token for {email} to {token_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error saving token for {email}: {e}")
+            return False
+
+    def refresh_token(self, email):
+        """
+        Refresh an existing access token for a user
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            bool: True if refresh successful, False otherwise
+        """
+        try:
+            logger.info(f"🔄 Refreshing token for {email}")
+            
+            # Load current token data
+            token_data = self.load_token(email)
+            if not token_data:
+                logger.error(f"❌ No token data found for {email}")
+                return False
+            
+            refresh_token = token_data.get('refresh_token')
+            if not refresh_token:
+                logger.error(f"❌ No refresh token found for {email}")
+                return False
+            
+            # Check if token is actually expired
+            expires_at_str = token_data.get('expires_at')
+            if expires_at_str:
+                try:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    now = datetime.now()
+                    if now < expires_at:
+                        logger.info(f"✅ Token for {email} is still valid, no refresh needed")
+                        return True
+                    else:
+                        logger.info(f"⏰ Token for {email} expired at {expires_at}, refreshing...")
+                except Exception as e:
+                    logger.warning(f"Could not parse expiry date: {e}")
+            
+            # Prepare refresh request
+            refresh_data = {
+                'action': 'requesttoken',
+                'grant_type': 'refresh_token',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'refresh_token': refresh_token
+            }
+            
+            # Add signature
+            refresh_data['signature'] = self._generate_signature(refresh_data)
+            
+            logger.info(f"📡 Sending refresh request to Withings API...")
+            
+            # Make the refresh request
+            response = requests.post(self.token_url, data=refresh_data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                if result.get('status') == 0:  # Success
+                    body = result.get('body', {})
+                    
+                    # LOG WHAT WITHINGS ACTUALLY RETURNS
+                    actual_expires_in = body.get('expires_in')
+                    logger.info(f"🔍 Withings API returned expires_in: {actual_expires_in}")
+                    
+                    # Don't use hardcoded fallback - trust Withings or error if missing
+                    if actual_expires_in is None:
+                        logger.warning(f"⚠️  WARNING: Withings did not return expires_in value!")
+                        # Use 24 hours as emergency fallback instead of 3 hours
+                        actual_expires_in = 86400  # 24 hours
+                        logger.warning(f"🆘 Using emergency 24-hour fallback: {actual_expires_in}")
+                    
+                    # Update token data with new tokens
+                    new_token_data = {
+                        'userid': body.get('userid') or token_data.get('userid'),
+                        'access_token': body.get('access_token'),
+                        'refresh_token': body.get('refresh_token'),
+                        'scope': body.get('scope', 'user.info,user.metrics,user.activity'),
+                        'expires_in': actual_expires_in,
+                        'token_type': body.get('token_type', 'Bearer'),
+                        'patient_email': email,
+                        'created_at': datetime.now().isoformat(),
+                        'expires_at': (datetime.now() + timedelta(seconds=actual_expires_in)).isoformat()
+                    }
+                    
+                    # Save the refreshed token
+                    success = self.save_token(email, new_token_data)
+                    
+                    if success:
+                        logger.info(f"✅ Successfully refreshed token for {email}")
+                        logger.info(f"📅 New expiry: {new_token_data['expires_at']}")
+                        logger.info(f"⏳ Token lifetime: {actual_expires_in} seconds ({actual_expires_in/3600:.1f} hours)")
+                        
+                        # BEST PRACTICE: Immediately use the new access token to invalidate old refresh token
+                        logger.info(f"🔒 Testing new access token to invalidate old refresh token...")
+                        self._test_new_access_token(new_token_data['access_token'], email)
+                        
+                        return True
+                    else:
+                        logger.error(f"❌ Failed to save refreshed token for {email}")
+                        return False
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    status_code = result.get('status', 'Unknown')
+                    
+                    # BEST PRACTICE: Handle invalid_grant specifically
+                    if 'invalid' in error_msg.lower() and ('grant' in error_msg.lower() or 'refresh_token' in error_msg.lower()):
+                        logger.error(f"🔑 INVALID GRANT for {email}: Refresh token expired or invalid - needs reauthorization")
+                        logger.error(f"   This usually means the refresh token has expired (>1 year old) or was already used")
+                    else:
+                        logger.error(f"❌ Withings API error during refresh: {error_msg} (status: {status_code})")
+                    
+                    logger.error(f"Full response: {result}")
+                    return False
+            else:
+                logger.error(f"❌ HTTP error during refresh: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Exception during token refresh for {email}: {e}")
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _test_new_access_token(self, access_token, email):
+        """
+        BEST PRACTICE: Immediately test new access token to invalidate old refresh token
+        
+        This makes a simple API call using the new access token, which triggers
+        Withings to invalidate the old refresh token (within ~8 hour safety window)
+        """
+        try:
+            # Make a simple API call to test the token
+            test_url = "https://wbsapi.withings.net/v2/user"
+            headers = {
+                'Authorization': f'Bearer {access_token}'
+            }
+            
+            response = requests.get(test_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('status') == 0:
+                    logger.info(f"✅ New access token validated for {email} - old refresh token invalidated")
+                    return True
+                else:
+                    logger.warning(f"⚠️  New access token test returned status: {result.get('status')} for {email}")
+            else:
+                logger.warning(f"⚠️  New access token test HTTP error: {response.status_code} for {email}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Could not test new access token for {email}: {e}")
+            # Don't fail the refresh process if the test fails
+        
+        return False
+
+    def revoke_token(self, email):
+        """
+        Revoke access token and remove user authorization
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            bool: True if revocation successful, False otherwise
+        """
+        try:
+            logger.info(f"🔓 Revoking token for {email}")
+            
+            # Load current token data
+            token_data = self.load_token(email)
+            if not token_data:
+                logger.warning(f"⚠️ No token data found for {email}, considering already revoked")
+                return True
+            
+            access_token = token_data.get('access_token')
+            if access_token:
+                # Try to revoke the token with Withings
+                try:
+                    revoke_data = {
+                        'action': 'revoke',
+                        'client_id': self.client_id,
+                        'client_secret': self.client_secret,
+                        'token': access_token
+                    }
+                    
+                    # Add signature
+                    revoke_data['signature'] = self._generate_signature(revoke_data)
+                    
+                    response = requests.post(self.token_url, data=revoke_data)
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get('status') == 0:
+                            logger.info(f"✅ Successfully revoked token with Withings API")
+                        else:
+                            logger.warning(f"⚠️ Withings API revoke returned status: {result.get('status')}")
+                    else:
+                        logger.warning(f"⚠️ HTTP error during revoke: {response.status_code}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error revoking with Withings API: {e}")
+            
+            # Remove local token file regardless of API response
+            token_file = self._get_token_file_path(email)
+            if os.path.exists(token_file):
+                os.remove(token_file)
+                logger.info(f"✅ Removed local token file for {email}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error revoking token for {email}: {e}")
+            return False
+    
+    def get_token_status(self, email):
+        """
+        Get detailed status of a user's token
+        
+        Args:
+            email: User's email address
+        
+        Returns:
+            dict: Token status information
+        """
+        try:
+            token_data = self.load_token(email)
+            if not token_data:
+                return {
+                    'exists': False,
+                    'valid': False,
+                    'expires_at': None,
+                    'time_until_expiry': None,
+                    'needs_refresh': False
+                }
+            
+            expires_at_str = token_data.get('expires_at')
+            if expires_at_str:
+                try:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    now = datetime.now()
+                    time_until_expiry = expires_at - now
+                    needs_refresh = time_until_expiry.total_seconds() < 3600  # Less than 1 hour
+                    
+                    return {
+                        'exists': True,
+                        'valid': time_until_expiry.total_seconds() > 0,
+                        'expires_at': expires_at_str,
+                        'time_until_expiry': str(time_until_expiry),
+                        'needs_refresh': needs_refresh,
+                        'userid': token_data.get('userid'),
+                        'scope': token_data.get('scope')
+                    }
+                except Exception as e:
+                    logger.error(f"Error parsing expiry date: {e}")
+            
+            return {
+                'exists': True,
+                'valid': True,  # Assume valid if we can't check expiry
+                'expires_at': expires_at_str,
+                'time_until_expiry': 'Unknown',
+                'needs_refresh': False,
+                'userid': token_data.get('userid'),
+                'scope': token_data.get('scope')
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting token status for {email}: {e}")
+            return {
+                'exists': False,
+                'valid': False,
+                'expires_at': None,
+                'time_until_expiry': None,
+                'needs_refresh': False
+            }
+
+    def list_all_tokens(self):
+        """
+        List all stored tokens with their status
+        
+        Returns:
+            dict: Dictionary of email -> token status
+        """
+        try:
+            tokens = {}
+            
+            if not os.path.exists(self.tokens_dir):
+                return tokens
+            
+            logger.info(f"🔍 Scanning tokens directory: {self.tokens_dir}")
+            
+            for filename in os.listdir(self.tokens_dir):
+                # FIXED: Look for _tokens.json files (matching your existing naming)
+                if filename.endswith('_tokens.json'):
+                    email = filename.replace('_tokens.json', '').replace('_at_', '@').replace('_dot_', '.')
+                    logger.info(f"📄 Found token file for {email}: {filename}")
+                    tokens[email] = self.get_token_status(email)
+            
+            logger.info(f"📊 Found {len(tokens)} token files")
+            return tokens
+            
+        except Exception as e:
+            logger.error(f"Error listing tokens: {e}")
+            return {}
+
+
+# Test the module if run directly
+if __name__ == "__main__":
+    print("Testing WithingsAuth module...")
+    
+    try:
+        auth = WithingsAuth()
+        print("✅ WithingsAuth initialized successfully")
+        
+        # Test generating an auth URL
+        test_email = "test@example.com"
+        auth_url = auth.generate_auth_url(test_email)
+        print(f"✅ Generated auth URL: {auth_url[:100]}...")
+        
+    except Exception as e:
+        print(f"❌ Error testing WithingsAuth: {e}")
+        traceback.print_exc()

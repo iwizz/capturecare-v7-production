@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+ENV/
+env/
+
+# Environment Variables & Secrets
+*.env
+.env
+capturecare.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Tokens & Credentials
+tokens/
+credentials.json
+token.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Replit
+.replit
+replit.nix
+.config/
+.cache/
+.upm/
+.pythonlibs/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+client_secrets.json

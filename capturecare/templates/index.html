@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Home - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="bg-gradient-to-r from-blue-500 to-blue-700 rounded-lg shadow-xl p-12 text-white mb-8">
+    <h1 class="text-5xl font-bold mb-4">Welcome to CaptureCare</h1>
+    <p class="text-xl mb-6">Comprehensive Healthcare Data Integration Platform</p>
+    <p class="text-lg opacity-90">Seamlessly integrate Withings health devices, Cliniko practice management, and AI-powered health insights.</p>
+</div>
+
+<div class="grid md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-xl transition">
+        <div class="text-brand-bright-teal text-4xl mb-4">
+            <i class="fas fa-heartbeat"></i>
+        </div>
+        <h3 class="text-xl font-bold mb-2">Health Monitoring</h3>
+        <p class="text-gray-600">Real-time synchronization of health data from Withings devices including body composition, cardiovascular metrics, activity, and sleep.</p>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-xl transition">
+        <div class="text-brand-bright-teal text-4xl mb-4">
+            <i class="fas fa-brain"></i>
+        </div>
+        <h3 class="text-xl font-bold mb-2">AI Health Analysis</h3>
+        <p class="text-gray-600">OpenAI-powered health insights provide personalized recommendations and identify trends in patient health data.</p>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-xl transition">
+        <div class="text-purple-600 text-4xl mb-4">
+            <i class="fas fa-hospital"></i>
+        </div>
+        <h3 class="text-xl font-bold mb-2">Practice Integration</h3>
+        <p class="text-gray-600">Seamless integration with Cliniko for patient matching and automated treatment note creation.</p>
+    </div>
+</div>
+
+<div class="bg-white rounded-lg shadow-md p-8">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold flex items-center">
+            <i class="fas fa-users text-brand-bright-teal mr-3"></i>
+            All Patients
+        </h2>
+        <a href="{{ url_for('add_patient') }}" 
+           class="bg-brand-bright-teal text-white px-4 py-2 rounded-lg hover:bg-brand-teal transition">
+            <i class="fas fa-plus mr-2"></i>Add Patient
+        </a>
+    </div>
+    
+    {% if patients %}
+        <div class="mb-6 space-y-4">
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1">
+                    <div class="relative">
+                        <input type="text" id="patientSearch" 
+                               placeholder="Search by name or email..." 
+                               class="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="filterPatients('all')" 
+                            id="filterAll"
+                            class="px-4 py-2 rounded-lg font-medium bg-brand-bright-teal text-white hover:bg-brand-teal transition">
+                        <i class="fas fa-users mr-1"></i> All
+                    </button>
+                    <button onclick="filterPatients('connected')" 
+                            id="filterConnected"
+                            class="px-4 py-2 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 transition">
+                        <i class="fas fa-check-circle mr-1"></i> Connected
+                    </button>
+                    <button onclick="filterPatients('unconnected')" 
+                            id="filterUnconnected"
+                            class="px-4 py-2 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 transition">
+                        <i class="fas fa-exclamation-circle mr-1"></i> Unconnected
+                    </button>
+                </div>
+            </div>
+            <div id="patientCount" class="text-sm text-gray-600"></div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="patientTableBody" class="bg-white divide-y divide-gray-200">
+                    {% for patient in patients %}
+                    <tr class="hover:bg-gray-50 patient-row" 
+                        data-name="{{ patient.first_name }} {{ patient.last_name }}" 
+                        data-email="{{ patient.email }}"
+                        data-connected="{{ 'true' if patient.withings_user_id else 'false' }}">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="font-medium text-gray-900">{{ patient.first_name }} {{ patient.last_name }}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-gray-600">{{ patient.email }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% if patient.withings_user_id %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                    <i class="fas fa-check-circle"></i> Connected
+                                </span>
+                            {% else %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    <i class="fas fa-exclamation-circle"></i> Not Connected
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <a href="{{ url_for('patient_detail', patient_id=patient.id) }}" 
+                               class="text-brand-bright-teal hover:text-blue-800 font-medium">
+                                View Details <i class="fas fa-arrow-right"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="noResults" class="hidden text-center py-12">
+            <i class="fas fa-search text-6xl text-gray-300 mb-4"></i>
+            <p class="text-gray-600 text-lg">No patients match your search or filter.</p>
+        </div>
+    {% else %}
+        <div class="text-center py-12">
+            <i class="fas fa-user-plus text-6xl text-gray-300 mb-4"></i>
+            <p class="text-gray-600 text-lg mb-6">No patients yet. Start by adding your first patient.</p>
+            <a href="{{ url_for('add_patient') }}" 
+               class="inline-block bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
+                <i class="fas fa-plus mr-2"></i>Add First Patient
+            </a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    let currentFilter = 'all';
+    
+    function filterPatients(filter) {
+        currentFilter = filter;
+        
+        // Update button styles
+        document.getElementById('filterAll').className = 'px-4 py-2 rounded-lg font-medium transition ' + 
+            (filter === 'all' ? 'bg-brand-bright-teal text-white hover:bg-brand-teal' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+        document.getElementById('filterConnected').className = 'px-4 py-2 rounded-lg font-medium transition ' + 
+            (filter === 'connected' ? 'bg-brand-bright-teal text-white hover:bg-brand-teal' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+        document.getElementById('filterUnconnected').className = 'px-4 py-2 rounded-lg font-medium transition ' + 
+            (filter === 'unconnected' ? 'bg-yellow-600 text-white hover:bg-yellow-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300');
+        
+        applyFilters();
+    }
+    
+    function applyFilters() {
+        const searchTerm = document.getElementById('patientSearch').value.toLowerCase();
+        const rows = document.querySelectorAll('.patient-row');
+        const tableBody = document.getElementById('patientTableBody');
+        const noResults = document.getElementById('noResults');
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+            const name = row.dataset.name.toLowerCase();
+            const email = row.dataset.email.toLowerCase();
+            const isConnected = row.dataset.connected === 'true';
+            
+            // Check search filter
+            const matchesSearch = searchTerm === '' || name.includes(searchTerm) || email.includes(searchTerm);
+            
+            // Check connection filter
+            let matchesFilter = true;
+            if (currentFilter === 'connected') {
+                matchesFilter = isConnected;
+            } else if (currentFilter === 'unconnected') {
+                matchesFilter = !isConnected;
+            }
+            
+            // Show/hide row
+            if (matchesSearch && matchesFilter) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+        
+        // Update count
+        const totalCount = rows.length;
+        const countText = visibleCount === totalCount 
+            ? `Showing all ${totalCount} patients`
+            : `Showing ${visibleCount} of ${totalCount} patients`;
+        document.getElementById('patientCount').textContent = countText;
+        
+        // Show/hide no results message
+        if (visibleCount === 0) {
+            tableBody.parentElement.style.display = 'none';
+            noResults.style.display = 'block';
+        } else {
+            tableBody.parentElement.style.display = 'table';
+            noResults.style.display = 'none';
+        }
+    }
+    
+    // Add search event listener
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('patientSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', applyFilters);
+            // Initialize count
+            applyFilters();
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,545 @@
+#!/usr/bin/env python3
+"""
+COMPLETE FIXED VERSION: fetch_withings_data.py with Sleep in HOURS
+This replaces your entire fetch_withings_data.py file
+"""
+
+import os
+import sys
+import requests
+import json
+import csv
+import argparse
+from datetime import datetime, timedelta
+import pytz
+
+TOKENS_DIR = os.getenv('TOKENS_DIR', 'tokens')
+
+# Official Withings measurement type mapping from API documentation
+MEASURE_TYPE_MAP = {
+    # Basic Body Composition
+    1: "Weight",
+    4: "Height", 
+    5: "Fat Free Mass",
+    6: "Fat Ratio",
+    8: "Fat Mass Weight",
+    76: "Muscle Mass",
+    77: "Hydration",
+    88: "Bone Mass",
+    
+    # Cardiovascular Health  
+    9: "Diastolic Blood Pressure",
+    10: "Systolic Blood Pressure", 
+    11: "Heart Pulse",
+    54: "SpO2",
+    91: "Pulse Wave Velocity",
+    155: "Vascular age",
+    226: "Basal Metabolic Rate",
+    
+    # Temperature Measurements
+    12: "Temperature",
+    71: "Body Temperature",
+    73: "Skin Temperature",
+    
+    # Advanced Body Composition & Bioimpedance
+    167: "Nerve Health Score",
+    168: "Extracellular Water",
+    169: "Intracellular Water", 
+    170: "Visceral Fat",
+    174: "Fat Mass for segments",
+    175: "Muscle Mass for segments",
+    196: "Electrodermal activity feet",
+    229: "Electrochemical Skin Conductance",
+    
+    # Heart Health & ECG
+    123: "VO2 max",
+    130: "Atrial fibrillation result",
+    135: "QRS interval duration",
+    136: "PR interval duration",
+    137: "QT interval duration",
+    138: "Corrected QT interval duration",
+    139: "Atrial fibrillation result from PPG",
+}
+
+# Enhanced measurement name to unit mapping
+MEASURE_UNITS = {
+    1: "kg",        # Weight
+    4: "m",         # Height
+    5: "kg",        # Fat Free Mass
+    6: "%",         # Fat Ratio
+    8: "kg",        # Fat Mass Weight
+    9: "mmHg",      # Diastolic BP
+    10: "mmHg",     # Systolic BP
+    11: "bpm",      # Heart Pulse
+    12: "°C",       # Temperature
+    54: "%",        # SpO2
+    76: "kg",       # Muscle Mass
+    77: "%",        # Hydration
+    88: "kg",       # Bone Mass
+    91: "m/s",      # Pulse Wave Velocity
+    123: "ml/min/kg", # VO2 max
+    155: "years",   # Vascular age
+    226: "kcal",    # BMR
+}
+
+class WithingsDataFetcher:
+    def __init__(self):
+        self.tokens_dir = TOKENS_DIR
+        self.aus_tz = pytz.timezone('Australia/Sydney')
+    
+    def safe_email(self, email):
+        """Convert email to safe filename format"""
+        return email.replace('@', '_at_').replace('.', '_dot_')
+    
+    def load_tokens(self, email):
+        """Load tokens for a given email"""
+        safe = self.safe_email(email)
+        token_file = os.path.join(self.tokens_dir, f"{safe}_tokens.json")
+        
+        if not os.path.exists(token_file):
+            raise FileNotFoundError(f"No token file found for {email}")
+        
+        with open(token_file, 'r') as f:
+            return json.load(f)
+    
+    def fetch_withings_measures(self, access_token, startdate=None, enddate=None, meastype=None, meastypes=None, category=1, lastupdate=None, offset=None):
+        """Fetch measurement data using official Withings API parameters"""
+        url = "https://wbsapi.withings.net/measure"
+        params = {
+            "action": "getmeas",
+            "category": category,
+        }
+        
+        # Handle date parameters (convert datetime to unix timestamp)
+        if startdate:
+            params["startdate"] = int(startdate.timestamp())
+        if enddate:
+            params["enddate"] = int(enddate.timestamp())
+        if lastupdate:
+            params["lastupdate"] = int(lastupdate.timestamp()) if hasattr(lastupdate, 'timestamp') else lastupdate
+        
+        # Handle measurement type parameters
+        if meastype is not None:
+            params["meastype"] = meastype
+        elif meastypes:
+            # Convert list to comma-separated string as per API docs
+            if isinstance(meastypes, list):
+                params["meastypes"] = ",".join(map(str, meastypes))
+            else:
+                params["meastypes"] = str(meastypes)
+        
+        # Handle pagination
+        if offset is not None:
+            params["offset"] = offset
+            
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        resp = requests.post(url, data=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if data.get("status") == 0 and data.get("body", {}).get("measuregrps"):
+            return data["body"]["measuregrps"], data["body"].get("more", 0), data["body"].get("offset", 0)
+        return [], 0, 0
+
+    def fetch_withings_activity(self, access_token, startdate=None, enddate=None):
+        """Fetch activity data (steps, distance, calories, heart rate)"""
+        url = "https://wbsapi.withings.net/v2/measure"
+        params = {
+            "action": "getactivity",
+        }
+        
+        if startdate:
+            params["startdateymd"] = startdate.strftime("%Y-%m-%d")
+        if enddate:
+            params["enddateymd"] = enddate.strftime("%Y-%m-%d") 
+            
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        resp = requests.post(url, data=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if data.get("status") == 0 and data.get("body", {}).get("activities"):
+            return data["body"]["activities"]
+        return []
+
+    def fetch_withings_sleep_summary(self, access_token, startdate=None, enddate=None):
+        """Fetch sleep summary data"""
+        url = "https://wbsapi.withings.net/v2/sleep"
+        params = {
+            "action": "getsummary",
+        }
+        
+        if startdate:
+            params["startdateymd"] = startdate.strftime("%Y-%m-%d")
+        if enddate:
+            params["enddateymd"] = enddate.strftime("%Y-%m-%d")
+            
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        resp = requests.post(url, data=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if data.get("status") == 0 and data.get("body", {}).get("series"):
+            return data["body"]["series"]
+        return []
+
+    def flatten_measuregrps(self, measuregrps):
+        """Flatten Withings measuregrps into standardized measurements"""
+        measurements = []
+        for grp in measuregrps:
+            timestamp = grp['date']
+            for measure in grp.get('measures', []):
+                value = measure['value'] * (10 ** measure['unit'])
+                mtype = measure.get('type', '')
+                measurement_name = MEASURE_TYPE_MAP.get(mtype, f'Unknown Type {mtype}')
+                unit = MEASURE_UNITS.get(mtype, '')
+                
+                measurements.append({
+                    'timestamp': timestamp,
+                    'measurement_name': measurement_name,
+                    'value': value,
+                    'unit': unit,
+                    'withings_type': mtype
+                })
+        return measurements
+
+    def flatten_activity_data(self, activities):
+        """Flatten activity data into standardized measurements"""
+        measurements = []
+        
+        # Activity field mapping with units
+        activity_mapping = {
+            'steps': ('Steps', 'steps'),
+            'distance': ('Distance', 'm'),
+            'calories': ('Calories', 'kcal'),
+            'totalcalories': ('Total Calories', 'kcal'),
+            'intensity': ('Activity Score', 'score'),
+            'moderate': ('Moderate Activity', 'min'),
+            'intense': ('Intense Activity', 'min'),
+            'hr_average': ('HR Average', 'bpm'),
+            'hr_min': ('HR Min', 'bpm'),
+            'hr_max': ('HR Max', 'bpm'),
+        }
+        
+        for activity in activities:
+            # Convert date string to timestamp
+            date_str = activity.get('date', '')
+            if date_str:
+                # Parse date in YYYY-MM-DD format and set to noon AEST
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                # Set to noon AEST for daily activity data
+                date_obj = date_obj.replace(hour=12, minute=0, second=0, microsecond=0)
+                date_obj_aest = self.aus_tz.localize(date_obj)
+                timestamp = int(date_obj_aest.timestamp())
+                
+                # Extract activity metrics
+                for field, (name, unit) in activity_mapping.items():
+                    if field in activity and activity[field] is not None:
+                        value = activity[field]
+                        # Skip zero values as they're often meaningless
+                        if value > 0:
+                            measurements.append({
+                                'timestamp': timestamp,
+                                'measurement_name': name,
+                                'value': float(value),
+                                'unit': unit,
+                                'withings_type': f'activity_{field}'
+                            })
+        
+        return measurements
+
+    def flatten_sleep_summary(self, sleep_data):
+        """FIXED: Flatten sleep summary data - MAIN SLEEP DURATIONS IN HOURS"""
+        measurements = []
+        
+        print("🛌 PROCESSING SLEEP DATA - CONVERTING TO HOURS")
+        
+        # Sleep field mapping with CORRECTED units (converting seconds to HOURS for main sleep)
+        sleep_mapping = {
+            'sleep_score': ('Sleep Score', 'score', 1),  # No conversion needed
+            'deepsleepduration': ('Deep Sleep', 'hours', 1/3600),  # Convert seconds to HOURS
+            'lightsleepduration': ('Light Sleep', 'hours', 1/3600),  # Convert seconds to HOURS
+            'remsleepduration': ('REM Sleep', 'hours', 1/3600),  # Convert seconds to HOURS
+            'durationtosleep': ('Time to Sleep', 'min', 1/60),  # Convert seconds to minutes (short duration)
+            'durationtowakeup': ('Time to Wake Up', 'min', 1/60),  # Convert seconds to minutes (short duration)
+            'wakeupcount': ('Wake Up Count', 'count', 1),  # No conversion needed
+            'hr_average': ('Sleep HR Average', 'bpm', 1),  # No conversion needed
+            'hr_min': ('Sleep HR Min', 'bpm', 1),  # No conversion needed
+            'hr_max': ('Sleep HR Max', 'bpm', 1),  # No conversion needed
+        }
+        
+        for sleep_session in sleep_data:
+            timestamp = sleep_session.get('startdate', 0)
+            data = sleep_session.get('data', {})
+            
+            print(f"   📊 Processing sleep session at timestamp {timestamp}")
+            print(f"   📊 Raw sleep data: {data}")
+            
+            # Calculate total sleep duration (converting seconds to HOURS)
+            total_duration_seconds = 0
+            for field in ['deepsleepduration', 'lightsleepduration', 'remsleepduration']:
+                if field in data:
+                    seconds = data[field]
+                    total_duration_seconds += seconds
+                    print(f"   📊 {field}: {seconds} seconds")
+            
+            if total_duration_seconds > 0:
+                total_duration_hours = total_duration_seconds / 3600  # Convert to HOURS
+                print(f"   📊 TOTAL SLEEP: {total_duration_seconds} seconds = {total_duration_hours:.2f} HOURS")
+                measurements.append({
+                    'timestamp': timestamp,
+                    'measurement_name': 'Sleep Duration',
+                    'value': round(total_duration_hours, 2),  # Round to 2 decimal places for hours
+                    'unit': 'hours',
+                    'withings_type': 'sleep_duration'
+                })
+            
+            # Extract other sleep metrics with proper unit conversion
+            for field, (name, unit, conversion_factor) in sleep_mapping.items():
+                if field in data and data[field] is not None:
+                    raw_value = data[field]
+                    if raw_value > 0:  # Skip zero/null values
+                        if unit == 'hours':
+                            # For hour conversions, use 2 decimal places
+                            converted_value = round(raw_value * conversion_factor, 2)
+                            print(f"   📊 {name}: {raw_value} seconds = {converted_value} HOURS")
+                        elif unit == 'min':
+                            # For minute conversions, use 1 decimal place
+                            converted_value = round(raw_value * conversion_factor, 1)
+                            print(f"   📊 {name}: {raw_value} seconds = {converted_value} minutes")
+                        else:
+                            # For counts and scores, no conversion
+                            converted_value = raw_value
+                            print(f"   📊 {name}: {converted_value} {unit}")
+                        
+                        measurements.append({
+                            'timestamp': timestamp,
+                            'measurement_name': name,
+                            'value': float(converted_value),
+                            'unit': unit,
+                            'withings_type': f'sleep_{field}'
+                        })
+        
+        print(f"🛌 SLEEP CONVERSION COMPLETE: {len(measurements)} sleep measurements processed")
+        return measurements
+
+    def fetch_measurements(self, email, days_back=30):
+        """
+        Main method to fetch ALL types of measurements for a patient
+        """
+        try:
+            # Load tokens
+            token_data = self.load_tokens(email)
+            access_token = token_data.get('access_token')
+            
+            if not access_token:
+                raise ValueError(f"No access token found for {email}")
+            
+            # Calculate date range
+            enddate = datetime.now()
+            startdate = enddate - timedelta(days=days_back)
+            
+            print(f"📅 Fetching ALL data types for {email} from {startdate.strftime('%d-%m-%y')} to {enddate.strftime('%d-%m-%y')}")
+            
+            all_measurements = []
+            
+            # 1. Fetch body composition measurements (weight, body fat, etc.) - WITH PAGINATION
+            print("📊 Fetching body composition & vital signs...")
+            try:
+                all_measuregrps = []
+                offset = 0
+                more = 1
+                page = 1
+                
+                # Handle pagination to get ALL historical data
+                while more:
+                    print(f"   📄 Fetching page {page} (offset: {offset})...")
+                    measuregrps, more, offset = self.fetch_withings_measures(
+                        access_token, 
+                        startdate=startdate, 
+                        enddate=enddate,
+                        offset=offset if offset > 0 else None
+                    )
+                    
+                    if measuregrps:
+                        all_measuregrps.extend(measuregrps)
+                        print(f"   📄 Page {page}: Found {len(measuregrps)} measurement groups")
+                    else:
+                        print(f"   📄 Page {page}: No data")
+                        
+                    page += 1
+                    
+                    # Safety check to prevent infinite loops
+                    if page > 50:
+                        print("   ⚠️ Reached maximum pagination limit (50 pages)")
+                        break
+                
+                print(f"   📊 Total measurement groups retrieved: {len(all_measuregrps)}")
+                body_measurements = self.flatten_measuregrps(all_measuregrps)
+                all_measurements.extend(body_measurements)
+                
+                # Log measurement types found
+                measurement_counts = {}
+                for m in body_measurements:
+                    mtype = m['measurement_name']
+                    measurement_counts[mtype] = measurement_counts.get(mtype, 0) + 1
+                
+                for mtype, count in measurement_counts.items():
+                    print(f"   📈 {mtype}: {count} readings")
+                    
+            except Exception as e:
+                print(f"   ❌ Error fetching body measurements: {e}")
+            
+            # 2. Fetch activity data (steps, distance, calories) - ENHANCED FETCH
+            print("🚶 Fetching activity data...")
+            try:
+                activities = self.fetch_withings_activity(access_token, startdate, enddate)
+                print(f"   📊 Retrieved {len(activities)} activity records")
+                activity_measurements = self.flatten_activity_data(activities)
+                all_measurements.extend(activity_measurements)
+                
+                if activity_measurements:
+                    activity_counts = {}
+                    for m in activity_measurements:
+                        mtype = m['measurement_name']
+                        activity_counts[mtype] = activity_counts.get(mtype, 0) + 1
+                    
+                    for mtype, count in activity_counts.items():
+                        print(f"   📈 {mtype}: {count} readings")
+                else:
+                    print("   ⚠️ No activity data found")
+                    
+            except Exception as e:
+                print(f"   ❌ Error fetching activity data: {e}")
+            
+            # 3. Fetch sleep data with FIXED unit conversion to HOURS - ENHANCED FETCH
+            print("😴 Fetching sleep data - CONVERTING TO HOURS...")
+            try:
+                sleep_data = self.fetch_withings_sleep_summary(access_token, startdate, enddate)
+                print(f"😴 Raw sleep data returned: {len(sleep_data)} sleep sessions")
+                print(f"   📊 Sleep data date range: {startdate.strftime('%Y-%m-%d')} to {enddate.strftime('%Y-%m-%d')}")
+                
+                sleep_measurements = self.flatten_sleep_summary(sleep_data)
+                all_measurements.extend(sleep_measurements)
+                
+                if sleep_measurements:
+                    sleep_counts = {}
+                    for m in sleep_measurements:
+                        mtype = m['measurement_name']
+                        sleep_counts[mtype] = sleep_counts.get(mtype, 0) + 1
+                    
+                    print("   📈 Sleep data processed (IN HOURS):")
+                    for mtype, count in sleep_counts.items():
+                        # Show sample values to verify conversion
+                        sample_values = [m['value'] for m in sleep_measurements if m['measurement_name'] == mtype]
+                        if sample_values:
+                            avg_val = sum(sample_values) / len(sample_values)
+                            unit = next((m['unit'] for m in sleep_measurements if m['measurement_name'] == mtype), '')
+                            print(f"      {mtype}: {count} readings (avg: {avg_val:.2f} {unit})")
+                        else:
+                            print(f"      {mtype}: {count} readings")
+                else:
+                    print("   ⚠️ No sleep data found")
+                    
+            except Exception as e:
+                print(f"   ❌ Error fetching sleep data: {e}")
+            
+            print(f"📊 Retrieved {len(all_measurements)} total measurements for {email}")
+            
+            # Show summary of data types with sample values for sleep verification
+            if all_measurements:
+                type_counts = {}
+                for m in all_measurements:
+                    mtype = m['measurement_name']
+                    type_counts[mtype] = type_counts.get(mtype, 0) + 1
+                
+                print(f"📈 Summary - {len(type_counts)} measurement types:")
+                for mtype, count in sorted(type_counts.items()):
+                    # Show sample values for sleep to verify they're in hours
+                    if any(keyword in mtype.lower() for keyword in ['sleep', 'deep', 'light', 'rem']):
+                        sample_values = [m['value'] for m in all_measurements if m['measurement_name'] == mtype]
+                        if sample_values:
+                            avg_val = sum(sample_values) / len(sample_values)
+                            unit = next((m['unit'] for m in all_measurements if m['measurement_name'] == mtype), '')
+                            print(f"   {mtype}: {count} readings (avg: {avg_val:.2f} {unit}) ⭐ CONVERTED TO HOURS")
+                        else:
+                            print(f"   {mtype}: {count} readings")
+                    else:
+                        print(f"   {mtype}: {count} readings")
+            
+            return all_measurements
+            
+        except Exception as e:
+            print(f"❌ Error fetching measurements for {email}: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+
+# Example usage and testing functions
+if __name__ == "__main__":
+    """
+    Example usage - Run this to test data fetching with HOURS conversion
+    """
+    print("🚀 Withings Data Fetcher Test - SLEEP IN HOURS")
+    print("=" * 60)
+    
+    try:
+        # Initialize data fetcher
+        fetcher = WithingsDataFetcher()
+        
+        # Test with a patient email (replace with actual patient email)
+        test_email = input("Enter patient email to test: ").strip()
+        
+        if test_email:
+            print(f"\n🔬 Testing data fetch for: {test_email}")
+            print("🛌 Sleep durations will be converted to HOURS")
+            
+            # Fetch recent data (last 7 days)
+            recent_data = fetcher.fetch_measurements(test_email, days_back=7)
+            
+            if recent_data:
+                print(f"\n📊 Sample data (latest 10 measurements):")
+                for measurement in recent_data[:10]:
+                    name = measurement['measurement_name']
+                    value = measurement['value']
+                    unit = measurement['unit']
+                    date_readable = datetime.fromtimestamp(
+                        measurement['timestamp'], 
+                        fetcher.aus_tz
+                    ).strftime('%d-%m-%y %H:%M:%S')
+                    
+                    if 'sleep' in name.lower() or any(keyword in name.lower() for keyword in ['deep', 'light', 'rem']):
+                        print(f"   🛌 {date_readable}: {name} = {value} {unit} ⭐ HOURS")
+                    else:
+                        print(f"   📊 {date_readable}: {name} = {value} {unit}")
+                
+                # Check for sleep data specifically
+                sleep_data = [m for m in recent_data if 'sleep' in m['measurement_name'].lower()]
+                if sleep_data:
+                    print(f"\n🛌 SLEEP DATA VERIFICATION:")
+                    print(f"   Found {len(sleep_data)} sleep measurements")
+                    for sleep_measurement in sleep_data[:3]:
+                        print(f"   ✅ {sleep_measurement['measurement_name']}: {sleep_measurement['value']} {sleep_measurement['unit']}")
+                else:
+                    print(f"\n⚠️ No sleep data found in recent measurements")
+                
+            else:
+                print(f"\n⚠️ No recent data found for {test_email}")
+                print("💡 Make sure the patient has Withings device data in the last 7 days")
+        else:
+            print("No email provided, exiting test")
+        
+    except Exception as e:
+        print(f"❌ Error during testing: {e}")
+        import traceback
+        traceback.print_exc()

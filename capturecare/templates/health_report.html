@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Health Report - {{ patient.first_name }} {{ patient.last_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="mb-6">
+        <a href="{{ url_for('patient_detail', patient_id=patient.id) }}" 
+           class="text-blue-600 hover:text-blue-800">
+            <i class="fas fa-arrow-left mr-2"></i>Back to Patient
+        </a>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">
+                <i class="fas fa-file-medical-alt text-blue-600 mr-2"></i>
+                {{ report_type if report_type else 'AI Health Report' }}
+            </h1>
+            <p class="text-gray-600">{{ patient.first_name }} {{ patient.last_name }}</p>
+            <p class="text-sm text-gray-500">{{ patient.email }}</p>
+        </div>
+
+        {% if insights %}
+        <div class="grid md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-blue-50 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Health Score</p>
+                <p class="text-3xl font-bold text-blue-600">{{ insights.overall_health_score }}</p>
+            </div>
+            
+            {% if insights.weight_trend %}
+            <div class="bg-green-50 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Weight Trend</p>
+                <p class="text-lg font-semibold text-green-600 capitalize">{{ insights.weight_trend }}</p>
+            </div>
+            {% endif %}
+            
+            {% if insights.sleep_quality %}
+            <div class="bg-purple-50 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Sleep Quality</p>
+                <p class="text-lg font-semibold text-purple-600 capitalize">{{ insights.sleep_quality }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="prose max-w-none">
+            <div class="bg-gray-50 rounded-lg p-6 whitespace-pre-line">{{ report }}</div>
+        </div>
+
+        <div class="mt-8 flex justify-center space-x-4">
+            <button onclick="window.print()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition">
+                <i class="fas fa-print mr-2"></i>Print Report
+            </button>
+            <a href="{{ url_for('patient_detail', patient_id=patient.id) }}" 
+               class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition">
+                <i class="fas fa-times mr-2"></i>Close
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

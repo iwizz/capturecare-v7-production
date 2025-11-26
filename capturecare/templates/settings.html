@@ -1,0 +1,1461 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - CaptureCare®{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h2 class="text-3xl font-bold text-gray-800 flex items-center">
+        <i class="fas fa-cog mr-3 text-brand-bright-teal"></i>
+        API Configuration & Settings
+    </h2>
+    <p class="text-gray-600 mt-2">Manage your API keys and integrations</p>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="{% if category == 'error' %}bg-red-100 border-red-400 text-red-700{% else %}bg-green-100 border-green-400 text-green-700{% endif %} border px-4 py-3 rounded relative mb-4" role="alert">
+                <span class="block sm:inline">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded">
+    <div class="flex items-start">
+        <i class="fas fa-exclamation-triangle text-yellow-600 text-xl mr-3 mt-1"></i>
+        <div>
+            <h3 class="font-bold text-yellow-800">Security Notice</h3>
+            <p class="text-yellow-700 mt-1">
+                API keys are sensitive credentials. Use the password field below to unlock editing. 
+                Click the <i class="fas fa-eye"></i> icon to reveal masked values.
+            </p>
+        </div>
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('settings') }}" class="space-y-6">
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-brain text-purple-600 mr-2"></i>
+            AI Models
+        </h3>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                    OpenAI API Key (ChatGPT)
+                    {% if openai_configured %}<span class="text-brand-bright-teal ml-2"><i class="fas fa-check-circle"></i> Configured</span>{% endif %}
+                </label>
+                <div class="flex gap-2">
+                    <input type="password" name="OPENAI_API_KEY" id="OPENAI_API_KEY" 
+                           value="{{ current_values.get('OPENAI_API_KEY', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="sk-...">
+                    <button type="button" onclick="toggleVisibility('OPENAI_API_KEY')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Get from: <a href="https://platform.openai.com/api-keys" target="_blank" class="text-brand-bright-teal">platform.openai.com</a></p>
+                
+                <!-- Test OpenAI Button -->
+                <div class="pt-2">
+                    <button type="button" onclick="testOpenAICredentials()" 
+                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                        <i class="fas fa-vial"></i>
+                        Test OpenAI API
+                    </button>
+                    <div id="openaiTestResult" class="mt-2"></div>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                    xAI API Key (Grok)
+                    {% if xai_configured %}<span class="text-brand-bright-teal ml-2"><i class="fas fa-check-circle"></i> Configured</span>{% endif %}
+                </label>
+                <div class="flex gap-2">
+                    <input type="password" name="XAI_API_KEY" id="XAI_API_KEY" 
+                           value="{{ current_values.get('XAI_API_KEY', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="xai-...">
+                    <button type="button" onclick="toggleVisibility('XAI_API_KEY')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Get from: <a href="https://x.ai" target="_blank" class="text-brand-bright-teal">x.ai</a></p>
+                
+                <!-- Test xAI Button -->
+                <div class="pt-2">
+                    <button type="button" onclick="testXAICredentials()" 
+                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                        <i class="fas fa-vial"></i>
+                        Test xAI API
+                    </button>
+                    <div id="xaiTestResult" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-video text-cyan-600 mr-2"></i>
+            Video Generation
+        </h3>
+
+        <div>
+            <label class="block text-sm font-bold text-gray-700 mb-2">
+                HeyGen API Key
+                {% if heygen_configured %}<span class="text-brand-bright-teal ml-2"><i class="fas fa-check-circle"></i> Configured</span>{% endif %}
+            </label>
+            <div class="flex gap-2">
+                <input type="password" name="HEYGEN_API_KEY" id="HEYGEN_API_KEY" 
+                       value="{{ current_values.get('HEYGEN_API_KEY', '') }}"
+                       class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="heygen_...">
+                <button type="button" onclick="toggleVisibility('HEYGEN_API_KEY')" 
+                        class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Get from: <a href="https://heygen.com" target="_blank" class="text-brand-bright-teal">heygen.com</a></p>
+            
+            <!-- Test HeyGen Button -->
+            <div class="pt-2">
+                <button type="button" onclick="testHeyGenCredentials()" 
+                        class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fas fa-vial"></i>
+                    Test HeyGen API
+                </button>
+                <div id="heygenTestResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-sms text-brand-bright-teal mr-2"></i>
+            Twilio (SMS Notifications)
+        </h3>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Account SID</label>
+                <div class="flex gap-2">
+                    <input type="password" name="TWILIO_ACCOUNT_SID" id="TWILIO_ACCOUNT_SID" 
+                           value="{{ current_values.get('TWILIO_ACCOUNT_SID', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="AC...">
+                    <button type="button" onclick="toggleVisibility('TWILIO_ACCOUNT_SID')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Auth Token</label>
+                <div class="flex gap-2">
+                    <input type="password" name="TWILIO_AUTH_TOKEN" id="TWILIO_AUTH_TOKEN" 
+                           value="{{ current_values.get('TWILIO_AUTH_TOKEN', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="Auth token">
+                    <button type="button" onclick="toggleVisibility('TWILIO_AUTH_TOKEN')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Phone Number</label>
+                <div class="flex gap-2">
+                    <input type="text" name="TWILIO_PHONE_NUMBER" id="TWILIO_PHONE_NUMBER" 
+                           value="{{ current_values.get('TWILIO_PHONE_NUMBER', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="+1234567890">
+                </div>
+            </div>
+            
+            <!-- Webhook Configuration -->
+            <div class="bg-gradient-to-r from-blue-50 to-teal-50 border-l-4 border-brand-bright-teal p-4 rounded-lg">
+                <h4 class="font-bold text-gray-800 mb-2 flex items-center">
+                    <i class="fas fa-webhook text-brand-bright-teal mr-2"></i>
+                    Inbound SMS Webhook (Two-Way Messaging)
+                </h4>
+                <p class="text-sm text-gray-700 mb-3">
+                    Configure this webhook in Twilio to receive SMS replies from patients directly into their Correspondence tab.
+                </p>
+                
+                <div class="bg-white rounded p-3 mb-3">
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Webhook URL (copy this):</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="twilioWebhookUrl" readonly
+                               value="{{ request.url_root }}api/webhook/sms"
+                               class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm font-mono"
+                               onclick="this.select()">
+                        <button type="button" onclick="copyToClipboard('twilioWebhookUrl')"
+                                class="px-3 py-2 bg-brand-bright-teal hover:bg-teal-600 text-white rounded transition-colors">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded p-3 text-xs text-gray-700 space-y-1">
+                    <p class="font-bold text-gray-800 mb-2">
+                        <i class="fas fa-info-circle text-brand-bright-teal mr-1"></i>
+                        Setup Instructions:
+                    </p>
+                    <ol class="list-decimal list-inside space-y-1 ml-2">
+                        <li>Go to <a href="https://console.twilio.com/us1/develop/phone-numbers/manage/incoming" target="_blank" class="text-brand-bright-teal underline">Twilio Console → Phone Numbers</a></li>
+                        <li>Click on your active phone number</li>
+                        <li>Scroll to <strong>Messaging Configuration</strong></li>
+                        <li>Under "A MESSAGE COMES IN", paste the webhook URL above</li>
+                        <li>Set HTTP Method to <strong>POST</strong></li>
+                        <li>Click <strong>Save</strong></li>
+                    </ol>
+                </div>
+                
+                <p class="text-xs text-gray-600 mt-2 italic">
+                    ✅ Once configured, patient SMS replies will automatically appear in their Correspondence history!
+                </p>
+            </div>
+            
+            <!-- Test Twilio Button -->
+            <div class="pt-2">
+                <button type="button" onclick="testTwilioCredentials()" 
+                        class="px-4 py-2 bg-brand-bright-teal hover:bg-teal-600 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fas fa-vial"></i>
+                    Test Twilio Credentials
+                </button>
+                <div id="twilioTestResult" class="mt-2"></div>
+            </div>
+            
+            <p class="text-xs text-gray-500">Get from: <a href="https://console.twilio.com" target="_blank" class="text-brand-bright-teal">console.twilio.com</a></p>
+        </div>
+    </div>
+
+    <!-- Twilio Video Configuration -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-video text-purple-600 mr-2"></i>
+            Twilio Video (Video Consultations)
+        </h3>
+
+        <div class="space-y-4">
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <h4 class="font-bold text-gray-800 mb-2 flex items-center">
+                    <i class="fas fa-info-circle text-purple-600 mr-2"></i>
+                    Video API Keys
+                </h4>
+                <p class="text-sm text-gray-700 mb-3">
+                    For secure video consultations. If not provided, Video will use your Account SID + Auth Token (same as SMS).
+                </p>
+                
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2">API Key SID</label>
+                        <div class="flex gap-2">
+                            <input type="password" name="TWILIO_API_KEY_SID" id="TWILIO_API_KEY_SID" 
+                                   value="{{ current_values.get('TWILIO_API_KEY_SID', '') }}"
+                                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                   placeholder="SK...">
+                            <button type="button" onclick="toggleVisibility('TWILIO_API_KEY_SID')" 
+                                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2">API Key Secret</label>
+                        <div class="flex gap-2">
+                            <input type="password" name="TWILIO_API_KEY_SECRET" id="TWILIO_API_KEY_SECRET" 
+                                   value="{{ current_values.get('TWILIO_API_KEY_SECRET', '') }}"
+                                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                   placeholder="API key secret">
+                            <button type="button" onclick="toggleVisibility('TWILIO_API_KEY_SECRET')" 
+                                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <p class="text-xs text-gray-600 mt-3">
+                    <i class="fas fa-lightbulb mr-1"></i>
+                    <strong>Note:</strong> If you don't have Video API Keys, the system will automatically use your Account SID + Auth Token (same credentials as SMS). 
+                    API Keys are recommended for better security but not required.
+                </p>
+                
+                <p class="text-xs text-gray-500 mt-2">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Create API Keys in Twilio Console: <a href="https://console.twilio.com/us1/develop/api-keys" target="_blank" class="text-purple-600 underline">Account → API Keys & Tokens → Create new API Key</a>
+                </p>
+            </div>
+            
+            <!-- Test Twilio Video Button -->
+            <div class="pt-2">
+                <button type="button" onclick="testTwilioVideoCredentials()" 
+                        class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fas fa-vial"></i>
+                    Test Twilio Video Credentials
+                </button>
+                <div id="twilioVideoTestResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inbound Email Webhook Configuration -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-envelope-open-text text-blue-600 mr-2"></i>
+            Email Webhook (Patient Email Tracking)
+        </h3>
+        
+        <div class="space-y-4">
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                <h4 class="font-bold text-gray-800 mb-2 flex items-center">
+                    <i class="fas fa-webhook text-blue-600 mr-2"></i>
+                    Inbound Email Webhook (Email Tracking)
+                </h4>
+                <p class="text-sm text-gray-700 mb-3">
+                    Forward patient emails to this webhook to automatically log them in their Correspondence tab.
+                </p>
+                
+                <div class="bg-white rounded p-3 mb-3">
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Webhook URL (copy this):</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="emailWebhookUrl" readonly
+                               value="{{ request.url_root }}api/webhook/email"
+                               class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm font-mono"
+                               onclick="this.select()">
+                        <button type="button" onclick="copyToClipboard('emailWebhookUrl')"
+                                class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded p-3 text-xs text-gray-700 space-y-2">
+                    <p class="font-bold text-gray-800 mb-2">
+                        <i class="fas fa-info-circle text-blue-600 mr-1"></i>
+                        Expected JSON Format:
+                    </p>
+                    <pre class="bg-gray-50 p-2 rounded border border-gray-200 overflow-x-auto"><code>{
+  "from_email": "patient@example.com",
+  "to_email": "clinic@example.com",
+  "subject": "Email subject",
+  "body": "Email body text",
+  "html_body": "HTML email body (optional)",
+  "message_id": "unique-message-id"
+}</code></pre>
+                    <p class="text-xs text-gray-600 mt-2">
+                        <strong>How to forward emails:</strong> You can use email forwarding services like <strong>Zapier</strong>, <strong>Make.com</strong>, or email parsing services that send POST requests with the above JSON format.
+                    </p>
+                    <p class="text-xs text-gray-600">
+                        The system will automatically match the <code>from_email</code> to patient records and log the correspondence.
+                    </p>
+                </div>
+                
+                <p class="text-xs text-gray-600 mt-2 italic">
+                    ✅ Patient emails will be automatically matched by email address and logged to their Correspondence history!
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Webhook Activity Log -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-list-alt text-purple-600 mr-2"></i>
+            Webhook Activity Log
+            <span id="webhookLogCount" class="ml-2 text-sm font-normal text-gray-500">(Loading...)</span>
+        </h3>
+        
+        <div class="space-y-4">
+            <p class="text-sm text-gray-600">
+                <i class="fas fa-info-circle text-purple-600 mr-1"></i>
+                This log shows all SMS and Email webhook requests received by your system. It auto-refreshes every 10 seconds.
+            </p>
+            
+            <!-- Filter Buttons -->
+            <div class="flex gap-2">
+                <button onclick="filterWebhookLogs('all')" 
+                        class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors text-sm"
+                        id="filter-all">
+                    All
+                </button>
+                <button onclick="filterWebhookLogs('sms')" 
+                        class="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors text-sm"
+                        id="filter-sms">
+                    SMS Only
+                </button>
+                <button onclick="filterWebhookLogs('email')" 
+                        class="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors text-sm"
+                        id="filter-email">
+                    Email Only
+                </button>
+            </div>
+            
+            <!-- Log Container -->
+            <div id="webhookLogContainer" class="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <p class="text-center text-gray-500">Loading webhook logs...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-envelope text-red-600 mr-2"></i>
+            Email (SMTP)
+        </h3>
+
+        <div class="space-y-4">
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">SMTP Server</label>
+                    <input type="text" name="SMTP_SERVER" 
+                           value="{{ current_values.get('SMTP_SERVER', 'smtp.gmail.com') }}"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="smtp.gmail.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Port</label>
+                    <input type="number" name="SMTP_PORT" 
+                           value="{{ current_values.get('SMTP_PORT', '587') }}"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="587">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Username / Email</label>
+                <input type="text" name="SMTP_USERNAME" 
+                       value="{{ current_values.get('SMTP_USERNAME', '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="your-email@gmail.com">
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Password (App Password for Gmail)</label>
+                <div class="flex gap-2">
+                    <input type="password" name="SMTP_PASSWORD" id="SMTP_PASSWORD" 
+                           value="{{ current_values.get('SMTP_PASSWORD', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                           placeholder="App password">
+                    <button type="button" onclick="toggleVisibility('SMTP_PASSWORD')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">From Email</label>
+                <input type="email" name="SMTP_FROM_EMAIL" 
+                       value="{{ current_values.get('SMTP_FROM_EMAIL', '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="noreply@yourdomain.com">
+            </div>
+            
+            <!-- Test SMTP Button -->
+            <div class="pt-2">
+                <button type="button" onclick="testSMTPCredentials()" 
+                        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fas fa-vial"></i>
+                    Test Email/SMTP
+                </button>
+                <div id="smtpTestResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-heartbeat text-indigo-600 mr-2"></i>
+            Withings API
+        </h3>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Client ID</label>
+                <input type="text" name="WITHINGS_CLIENT_ID" 
+                       value="{{ current_values.get('WITHINGS_CLIENT_ID', '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Client Secret</label>
+                <div class="flex gap-2">
+                    <input type="password" name="WITHINGS_CLIENT_SECRET" id="WITHINGS_CLIENT_SECRET" 
+                           value="{{ current_values.get('WITHINGS_CLIENT_SECRET', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <button type="button" onclick="toggleVisibility('WITHINGS_CLIENT_SECRET')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Redirect URI</label>
+                <input type="text" name="WITHINGS_REDIRECT_URI" 
+                       value="{{ current_values.get('WITHINGS_REDIRECT_URI', '') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="https://your-domain/withings/callback">
+            </div>
+            <p class="text-xs text-gray-500">Get from: <a href="https://developer.withings.com" target="_blank" class="text-brand-bright-teal">developer.withings.com</a></p>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-hospital text-teal-600 mr-2"></i>
+            Cliniko API
+        </h3>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">API Key</label>
+                <div class="flex gap-2">
+                    <input type="password" name="CLINIKO_API_KEY" id="CLINIKO_API_KEY" 
+                           value="{{ current_values.get('CLINIKO_API_KEY', '') }}"
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <button type="button" onclick="toggleVisibility('CLINIKO_API_KEY')" 
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-2">Shard (Region)</label>
+                <input type="text" name="CLINIKO_SHARD" 
+                       value="{{ current_values.get('CLINIKO_SHARD', 'au1') }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="au1">
+                <p class="text-xs text-gray-500 mt-1">Common values: au1, au2, us1</p>
+            </div>
+            
+            <!-- Test Cliniko Button -->
+            <div class="pt-2">
+                <button type="button" onclick="testClinikoCredentials()" 
+                        class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                    <i class="fas fa-vial"></i>
+                    Test Cliniko API
+                </button>
+                <div id="clinikoTestResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-calendar text-brand-bright-teal mr-2"></i>
+            Google Calendar Integration
+        </h3>
+
+        {% if calendar_info %}
+        <div class="bg-brand-cream border-l-4 border-green-500 p-4 rounded">
+            <div class="flex items-start">
+                <i class="fas fa-check-circle text-brand-bright-teal text-xl mr-3 mt-1"></i>
+                <div class="flex-1">
+                    <h4 class="font-bold text-brand-teal">Connected via Replit</h4>
+                    <p class="text-green-700 mt-1">
+                        Google Calendar is connected through Replit's integration system. 
+                        Appointments booked in CaptureCare are automatically synced to your Google Calendar.
+                    </p>
+                    
+                    <div class="mt-4 bg-white rounded-lg p-3 border border-brand-soft-blue">
+                        <p class="text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-user-circle mr-2 text-brand-bright-teal"></i>Connected Account
+                        </p>
+                        <p class="text-sm text-gray-800">
+                            <strong>Email:</strong> {{ calendar_info.email }}
+                        </p>
+                        <p class="text-sm text-gray-800 mt-1">
+                            <strong>Calendar:</strong> {{ calendar_info.summary }}
+                        </p>
+                        <p class="text-sm text-gray-800 mt-1">
+                            <strong>Timezone:</strong> {{ calendar_info.timezone }}
+                        </p>
+                    </div>
+                    
+                    <div class="mt-3 space-y-2">
+                        <p class="text-sm text-brand-teal">
+                            <i class="fas fa-check mr-2"></i>Automatic event creation
+                        </p>
+                        <p class="text-sm text-brand-teal">
+                            <i class="fas fa-check mr-2"></i>Real-time synchronization
+                        </p>
+                        <p class="text-sm text-brand-teal">
+                            <i class="fas fa-check mr-2"></i>Event updates and deletions
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+            <div class="flex items-start">
+                <i class="fas fa-exclamation-triangle text-yellow-600 text-xl mr-3 mt-1"></i>
+                <div>
+                    <h4 class="font-bold text-yellow-800">Not Connected</h4>
+                    <p class="text-yellow-700 mt-1">
+                        Google Calendar is not currently connected. Please connect your Google Calendar through the Replit integrations panel.
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="mt-4 text-sm text-gray-600">
+            <p><strong>Note:</strong> Google Calendar integration is managed through Replit's secure connector system. 
+            No API keys are required - authentication is handled automatically.</p>
+        </div>
+    </div>
+
+    <!-- Appointment Notification Templates -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <i class="fas fa-bell text-green-600 mr-2"></i>
+            Appointment Notifications
+        </h3>
+        <p class="text-sm text-gray-600 mb-4">Customize SMS and Email messages sent to patients for appointment confirmations and updates.</p>
+        
+        <!-- SMS Templates Section -->
+        <div class="mb-6">
+            <h4 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">
+                <i class="fas fa-sms text-brand-bright-teal mr-2"></i>
+                SMS Templates
+            </h4>
+            
+            <!-- Predefined SMS Templates -->
+            <div class="mb-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">Quick Select Predefined SMS:</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                    <button type="button" onclick="loadPredefinedSMSTemplate('friendly')" 
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-left border border-gray-300">
+                        <i class="fas fa-heart mr-2 text-red-500"></i>Friendly & Warm
+                    </button>
+                    <button type="button" onclick="loadPredefinedSMSTemplate('professional')" 
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-left border border-gray-300">
+                        <i class="fas fa-briefcase mr-2 text-blue-500"></i>Professional
+                    </button>
+                    <button type="button" onclick="loadPredefinedSMSTemplate('casual')" 
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-left border border-gray-300">
+                        <i class="fas fa-smile mr-2 text-yellow-500"></i>Casual & Friendly
+                    </button>
+                    <button type="button" onclick="loadPredefinedSMSTemplate('detailed')" 
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-left border border-gray-300">
+                        <i class="fas fa-info-circle mr-2 text-purple-500"></i>Detailed Info
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                    Custom SMS Message for Appointment Confirmation
+                    <span class="text-xs text-gray-500 font-normal ml-2">(Max 160 characters recommended)</span>
+                </label>
+                <textarea id="smsAppointmentTemplate" name="sms_appointment_template" rows="3"
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal font-mono text-sm"
+                          placeholder="Hi {first_name}, your appointment on {date_time} has been confirmed. Location: {location}. See you soon!"></textarea>
+                <div class="flex justify-between items-center mt-1">
+                    <p class="text-xs text-gray-500">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Available variables: <code class="bg-gray-100 px-1 rounded">{first_name}</code>, 
+                        <code class="bg-gray-100 px-1 rounded">{date_time}</code>, 
+                        <code class="bg-gray-100 px-1 rounded">{location}</code>, 
+                        <code class="bg-gray-100 px-1 rounded">{duration}</code>, 
+                        <code class="bg-gray-100 px-1 rounded">{practitioner}</code>
+                    </p>
+                    <span id="smsCharCount" class="text-xs text-gray-500">0/160</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Email Templates Section -->
+        <div class="mb-6">
+            <h4 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">
+                <i class="fas fa-envelope text-red-600 mr-2"></i>
+                Email Templates
+            </h4>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">Email Subject Line</label>
+                <input type="text" id="emailSubjectTemplate" name="email_subject_template"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal"
+                       placeholder="Appointment Confirmation - {date_time}">
+                <p class="text-xs text-gray-500 mt-1">
+                    Available variables: <code class="bg-gray-100 px-1 rounded">{first_name}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{date_time}</code>
+                </p>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">Email Body (HTML)</label>
+                <textarea id="emailBodyTemplate" name="email_body_template" rows="12"
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal font-mono text-sm"
+                          placeholder="<html><body><p>Hi {first_name},</p><p>Your appointment has been confirmed...</p></body></html>"></textarea>
+                <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    HTML format supported. Available variables: <code class="bg-gray-100 px-1 rounded">{first_name}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{last_name}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{date_time}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{location}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{duration}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{practitioner}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{appointment_type}</code>, 
+                    <code class="bg-gray-100 px-1 rounded">{notes}</code>
+                </p>
+            </div>
+        </div>
+        
+        <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+            <p class="text-sm text-blue-800">
+                <i class="fas fa-lightbulb mr-2"></i>
+                <strong>Tip:</strong> Templates are saved automatically when you click "Save All Settings" below. 
+                Changes will apply to all future appointment notifications.
+            </p>
+        </div>
+    </div>
+
+    <div class="sticky bottom-0 bg-white border-t-2 border-gray-200 p-6 flex justify-between items-center shadow-lg rounded-t-lg">
+        <p class="text-gray-600">
+            <i class="fas fa-info-circle mr-2"></i>
+            <strong>Important:</strong> Test your credentials before saving to ensure they're correct.
+        </p>
+        <button type="submit" class="bg-gradient-to-r from-blue-600 to-brand-bright-teal hover:from-blue-700 hover:to-brand-teal text-white px-10 py-4 rounded-lg font-bold text-xl shadow-lg transition-all transform hover:scale-105">
+            <i class="fas fa-save mr-2"></i>Save All Settings
+        </button>
+    </div>
+</form>
+
+<!-- Webhook Integration Section -->
+<div class="bg-white rounded-lg shadow-md p-6 mt-6">
+    <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+        <i class="fas fa-webhook text-indigo-600 mr-2"></i>
+        Webhook Integration
+    </h3>
+
+    <div class="bg-indigo-50 border-l-4 border-indigo-500 p-4 mb-4">
+        <p class="text-indigo-800">
+            <i class="fas fa-info-circle mr-2"></i>
+            Use this webhook to automatically add patients from external forms (Google Forms, Typeform, etc.)
+        </p>
+    </div>
+
+    <!-- Webhook URL -->
+    <div class="mb-6">
+        <label class="block text-sm font-bold text-gray-700 mb-2">
+            <i class="fas fa-link mr-1"></i>Webhook URL
+        </label>
+        <div class="flex gap-2">
+            <input type="text" 
+                   id="webhookUrl" 
+                   readonly
+                   value="https://{{ request.host }}/api/webhook/patient"
+                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">
+            <button type="button" 
+                    onclick="copyWebhookUrl()" 
+                    class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold">
+                <i class="fas fa-copy mr-2"></i>Copy
+            </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">
+            <i class="fas fa-check-circle text-green-600 mr-1"></i>
+            This webhook is publicly accessible (no authentication required)
+        </p>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="mb-6">
+        <h4 class="font-bold text-gray-800 mb-3 flex items-center">
+            <i class="fas fa-list-alt mr-2"></i>Recent Activity
+            <button type="button" onclick="refreshWebhookLogs()" class="ml-auto text-sm text-brand-bright-teal hover:text-brand-teal">
+                <i class="fas fa-sync-alt mr-1"></i>Refresh
+            </button>
+        </h4>
+        
+        <div id="webhookActivityLog" class="bg-gray-50 rounded-lg p-4 max-h-64 overflow-y-auto">
+            <div class="text-center text-gray-500 py-4">
+                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                <p>Loading recent submissions...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Documentation -->
+    <details class="bg-gray-50 rounded-lg p-4">
+        <summary class="font-bold text-gray-800 cursor-pointer hover:text-brand-bright-teal">
+            <i class="fas fa-book mr-2"></i>View Complete Documentation
+        </summary>
+        
+        <div class="mt-4 space-y-4">
+            <div>
+                <h5 class="font-semibold text-gray-700 mb-2">Supported Field Names:</h5>
+                <div class="grid md:grid-cols-3 gap-2 text-sm">
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">firstName</code> or <code class="bg-gray-200 px-2 py-1 rounded">first_name</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">lastName</code> or <code class="bg-gray-200 px-2 py-1 rounded">last_name</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">email</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">dateOfBirth</code> (YYYY-MM-DD)</div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">mobilePhone</code> or <code class="bg-gray-200 px-2 py-1 rounded">mobile</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">homePhone</code> or <code class="bg-gray-200 px-2 py-1 rounded">phone</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">address</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">suburb</code> or <code class="bg-gray-200 px-2 py-1 rounded">city</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">state</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">postcode</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">hasGP</code> (yes/no)</div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">gpName</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">gpAddress</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">gpPhone</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">medicationsList</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">emergencyContact</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">emergencyMobile</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">emergencyEmail</code></div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">consentEmergencyContact</code> (yes/no)</div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">hasSmartDevice</code> (yes/no)</div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">healthConcerns</code> (array)</div>
+                    <div><code class="bg-gray-200 px-2 py-1 rounded">agreeTerms</code> (on/off)</div>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 text-green-400 p-3 rounded text-xs overflow-x-auto">
+                <p class="text-gray-400 mb-2">Example JSON payload:</p>
+                <pre><code>{
+  "firstName": "John",
+  "lastName": "Smith",
+  "email": "john.smith@example.com",
+  "dateOfBirth": "1980-01-15",
+  "mobilePhone": "0412345678",
+  "address": "123 Main St",
+  "suburb": "Melbourne",
+  "state": "VIC",
+  "postcode": "3000",
+  "hasGP": "yes",
+  "gpName": "Dr. Sarah Wilson",
+  "healthConcerns": ["diabetes", "hypertension"]
+}</code></pre>
+            </div>
+        </div>
+    </details>
+</div>
+
+<script>
+function toggleVisibility(fieldId) {
+    const field = document.getElementById(fieldId);
+    const button = field.nextElementSibling;
+    if (field.type === 'password') {
+        field.type = 'text';
+        button.innerHTML = '<i class="fas fa-eye-slash"></i>';
+    } else {
+        field.type = 'password';
+        button.innerHTML = '<i class="fas fa-eye"></i>';
+    }
+}
+
+function copyWebhookUrl() {
+    const urlInput = document.getElementById('webhookUrl');
+    urlInput.select();
+    document.execCommand('copy');
+    
+    const button = event.target.closest('button');
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-check mr-2"></i>Copied!';
+    button.classList.add('bg-green-600');
+    button.classList.remove('bg-indigo-600');
+    
+    setTimeout(() => {
+        button.innerHTML = originalHTML;
+        button.classList.remove('bg-green-600');
+        button.classList.add('bg-indigo-600');
+    }, 2000);
+}
+
+function refreshWebhookLogs() {
+    fetch('/api/webhook/logs')
+        .then(response => response.json())
+        .then(data => {
+            const logContainer = document.getElementById('webhookActivityLog');
+            
+            if (data.logs && data.logs.length > 0) {
+                logContainer.innerHTML = data.logs.map(log => {
+                    const statusIcon = log.success 
+                        ? '<i class="fas fa-check-circle text-green-600"></i>' 
+                        : '<i class="fas fa-times-circle text-red-600"></i>';
+                    const statusClass = log.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50';
+                    
+                    return `
+                        <div class="border ${statusClass} rounded p-3 mb-2">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center space-x-2">
+                                    ${statusIcon}
+                                    <span class="font-semibold text-gray-800">${log.patient_name || 'Unknown'}</span>
+                                </div>
+                                <span class="text-xs text-gray-500">${new Date(log.created_at).toLocaleString()}</span>
+                            </div>
+                            ${log.email ? `<p class="text-sm text-gray-600 mt-1"><i class="fas fa-envelope mr-1"></i>${log.email}</p>` : ''}
+                            ${log.error ? `<p class="text-sm text-red-700 mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${log.error}</p>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                logContainer.innerHTML = `
+                    <div class="text-center text-gray-500 py-4">
+                        <i class="fas fa-inbox text-2xl mb-2"></i>
+                        <p>No webhook submissions yet</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching webhook logs:', error);
+            const logContainer = document.getElementById('webhookActivityLog');
+            logContainer.innerHTML = `
+                <div class="text-center text-red-600 py-4">
+                    <i class="fas fa-exclamation-circle text-2xl mb-2"></i>
+                    <p>Error loading webhook logs</p>
+                </div>
+            `;
+        });
+}
+
+// Load logs on page load
+document.addEventListener('DOMContentLoaded', refreshWebhookLogs);
+
+// Auto-refresh every 10 seconds
+setInterval(refreshWebhookLogs, 10000);
+
+async function testTwilioCredentials() {
+    const resultDiv = document.getElementById('twilioTestResult');
+    const button = event.target.closest('button');
+    
+    // Show loading state
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = `
+        <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+            <i class="fas fa-spinner fa-spin mr-2"></i>Validating Twilio credentials...
+        </div>
+    `;
+    
+    // Get current field values
+    const accountSid = document.getElementById('TWILIO_ACCOUNT_SID').value;
+    const authToken = document.getElementById('TWILIO_AUTH_TOKEN').value;
+    const phoneNumber = document.getElementById('TWILIO_PHONE_NUMBER').value;
+    
+    try {
+        const response = await fetch('/api/test-twilio', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                account_sid: accountSid,
+                auth_token: authToken,
+                phone_number: phoneNumber
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800">
+                    <i class="fas fa-check-circle mr-2"></i>${data.message}
+                    ${data.account_name ? `<br><strong>Account:</strong> ${data.account_name}` : ''}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                    <i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}
+                    ${data.suggestion ? `<br><br><i class="fas fa-lightbulb mr-1"></i><strong>Suggestion:</strong> ${data.suggestion}` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                <i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}
+            </div>
+        `;
+    }
+    
+    // Restore button
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testTwilioVideoCredentials() {
+    const resultDiv = document.getElementById('twilioVideoTestResult');
+    const button = event.target.closest('button');
+    
+    // Show loading state
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = `
+        <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+            <i class="fas fa-spinner fa-spin mr-2"></i>Validating Twilio Video credentials...
+        </div>
+    `;
+    
+    // Get current field values
+    const accountSid = document.getElementById('TWILIO_ACCOUNT_SID').value;
+    const authToken = document.getElementById('TWILIO_AUTH_TOKEN').value;
+    const apiKeySid = document.getElementById('TWILIO_API_KEY_SID').value;
+    const apiKeySecret = document.getElementById('TWILIO_API_KEY_SECRET').value;
+    
+    try {
+        const response = await fetch('/api/test-twilio-video', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                account_sid: accountSid,
+                auth_token: authToken,
+                api_key_sid: apiKeySid,
+                api_key_secret: apiKeySecret
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800">
+                    <i class="fas fa-check-circle mr-2"></i>${data.message}
+                    ${data.method ? `<br><strong>Method:</strong> ${data.method}` : ''}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                    <i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}
+                    ${data.suggestion ? `<br><br><i class="fas fa-lightbulb mr-1"></i><strong>Suggestion:</strong> ${data.suggestion}` : ''}
+                </div>
+            `;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                <i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}
+            </div>
+        `;
+    }
+    
+    // Restore button
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testOpenAICredentials() {
+    const resultDiv = document.getElementById('openaiTestResult');
+    const button = event.target.closest('button');
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800"><i class="fas fa-spinner fa-spin mr-2"></i>Testing OpenAI API...</div>';
+    
+    const apiKey = document.getElementById('OPENAI_API_KEY').value;
+    
+    try {
+        const response = await fetch('/api/test-openai', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}</div>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}</div>`;
+    }
+    
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testXAICredentials() {
+    const resultDiv = document.getElementById('xaiTestResult');
+    const button = event.target.closest('button');
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800"><i class="fas fa-spinner fa-spin mr-2"></i>Testing xAI API...</div>';
+    
+    const apiKey = document.getElementById('XAI_API_KEY').value;
+    
+    try {
+        const response = await fetch('/api/test-xai', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}</div>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}</div>`;
+    }
+    
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testClinikoCredentials() {
+    const resultDiv = document.getElementById('clinikoTestResult');
+    const button = event.target.closest('button');
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800"><i class="fas fa-spinner fa-spin mr-2"></i>Testing Cliniko API...</div>';
+    
+    const apiKey = document.getElementById('CLINIKO_API_KEY').value;
+    const shard = document.querySelector('input[name="CLINIKO_SHARD"]').value;
+    
+    try {
+        const response = await fetch('/api/test-cliniko', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ api_key: apiKey, shard: shard })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}</div>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}</div>`;
+    }
+    
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testHeyGenCredentials() {
+    const resultDiv = document.getElementById('heygenTestResult');
+    const button = event.target.closest('button');
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800"><i class="fas fa-spinner fa-spin mr-2"></i>Testing HeyGen API...</div>';
+    
+    const apiKey = document.getElementById('HEYGEN_API_KEY').value;
+    
+    try {
+        const response = await fetch('/api/test-heygen', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}</div>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}</div>`;
+    }
+    
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+async function testSMTPCredentials() {
+    const resultDiv = document.getElementById('smtpTestResult');
+    const button = event.target.closest('button');
+    const originalButtonText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+    
+    resultDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800"><i class="fas fa-spinner fa-spin mr-2"></i>Testing SMTP connection...</div>';
+    
+    const server = document.querySelector('input[name="SMTP_SERVER"]').value;
+    const port = document.querySelector('input[name="SMTP_PORT"]').value;
+    const username = document.querySelector('input[name="SMTP_USERNAME"]').value;
+    const password = document.getElementById('SMTP_PASSWORD').value;
+    const fromEmail = document.querySelector('input[name="SMTP_FROM_EMAIL"]').value;
+    
+    try {
+        const response = await fetch('/api/test-smtp', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                server: server,
+                port: port,
+                username: username,
+                password: password,
+                from_email: fromEmail
+            })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `<div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-800"><i class="fas fa-check-circle mr-2"></i>${data.message}</div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-times-circle mr-2"></i><strong>Test Failed:</strong> ${data.error}</div>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Network error: ${error.message}</div>`;
+    }
+    
+    button.disabled = false;
+    button.innerHTML = originalButtonText;
+}
+
+function copyToClipboard(elementId) {
+    const input = document.getElementById(elementId);
+    input.select();
+    input.setSelectionRange(0, 99999); // For mobile devices
+    
+    try {
+        document.execCommand('copy');
+        
+        // Visual feedback
+        const button = event.target.closest('button');
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i>';
+        button.classList.add('bg-green-500');
+        button.classList.remove('bg-brand-bright-teal');
+        
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.classList.remove('bg-green-500');
+            button.classList.add('bg-brand-bright-teal');
+        }, 2000);
+    } catch (err) {
+        alert('Failed to copy. Please manually select and copy the URL.');
+    }
+}
+
+// Webhook Activity Log Functions
+let currentWebhookFilter = 'all';
+let webhookLogRefreshInterval;
+
+async function loadWebhookLogs() {
+    try {
+        const url = currentWebhookFilter === 'all' 
+            ? '/api/communication-webhook-logs?limit=50'
+            : `/api/communication-webhook-logs?type=${currentWebhookFilter}&limit=50`;
+            
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.success) {
+            displayWebhookLogs(data.logs);
+            document.getElementById('webhookLogCount').textContent = `(${data.count} logs)`;
+        } else {
+            document.getElementById('webhookLogContainer').innerHTML = 
+                '<p class="text-center text-red-500">Error loading logs: ' + data.error + '</p>';
+        }
+    } catch (error) {
+        document.getElementById('webhookLogContainer').innerHTML = 
+            '<p class="text-center text-red-500">Failed to load webhook logs: ' + error.message + '</p>';
+    }
+}
+
+function displayWebhookLogs(logs) {
+    const container = document.getElementById('webhookLogContainer');
+    
+    if (logs.length === 0) {
+        container.innerHTML = '<p class="text-center text-gray-500">No webhook logs found. When SMS or emails are received, they will appear here.</p>';
+        return;
+    }
+    
+    let html = '';
+    logs.forEach(log => {
+        const isSuccess = log.success && log.patient_matched;
+        const statusColor = isSuccess ? 'green' : (log.success ? 'yellow' : 'red');
+        const statusIcon = isSuccess ? 'check-circle' : (log.success ? 'exclamation-triangle' : 'times-circle');
+        const statusText = isSuccess ? 'Matched & Logged' : (log.success ? 'No Match' : 'Failed');
+        
+        const channel = log.webhook_type === 'sms' ? 'SMS' : 'Email';
+        const channelIcon = log.webhook_type === 'sms' ? 'comment-alt' : 'envelope';
+        const channelColor = log.webhook_type === 'sms' ? 'teal' : 'blue';
+        
+        const from = log.from_phone || log.from_email || 'Unknown';
+        const to = log.to_phone || log.to_email || 'Unknown';
+        const message = log.message_body || log.message_subject || 'No content';
+        const truncatedMessage = message.length > 100 ? message.substring(0, 100) + '...' : message;
+        
+        const timestamp = new Date(log.created_at).toLocaleString();
+        
+        html += `
+            <div class="bg-white border-l-4 border-${channelColor}-500 rounded-lg p-3 shadow-sm">
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-${channelIcon} text-${channelColor}-600"></i>
+                        <span class="font-bold text-gray-800">${channel}</span>
+                        <span class="text-xs bg-${statusColor}-100 text-${statusColor}-800 px-2 py-1 rounded">
+                            <i class="fas fa-${statusIcon}"></i> ${statusText}
+                        </span>
+                    </div>
+                    <span class="text-xs text-gray-500">${timestamp}</span>
+                </div>
+                
+                <div class="text-sm text-gray-700 space-y-1">
+                    <div><strong>From:</strong> ${from}</div>
+                    <div><strong>To:</strong> ${to}</div>
+                    ${log.patient_name ? `<div><strong>Patient:</strong> ${log.patient_name}</div>` : ''}
+                    <div class="text-xs text-gray-600 mt-1">${truncatedMessage}</div>
+                    ${log.error_message ? `<div class="text-xs text-red-600 mt-1"><strong>Error:</strong> ${log.error_message}</div>` : ''}
+                </div>
+                
+                ${log.raw_request_data ? `
+                    <details class="mt-2">
+                        <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                            <i class="fas fa-code"></i> Raw Data
+                        </summary>
+                        <pre class="text-xs bg-gray-100 p-2 rounded mt-1 overflow-x-auto">${log.raw_request_data}</pre>
+                    </details>
+                ` : ''}
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function filterWebhookLogs(type) {
+    currentWebhookFilter = type;
+    
+    // Update button styles
+    ['all', 'sms', 'email'].forEach(t => {
+        const btn = document.getElementById(`filter-${t}`);
+        if (t === type) {
+            btn.classList.remove('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
+            btn.classList.add('bg-purple-600', 'hover:bg-purple-700', 'text-white');
+        } else {
+            btn.classList.remove('bg-purple-600', 'hover:bg-purple-700', 'text-white');
+            btn.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
+        }
+    });
+    
+    loadWebhookLogs();
+}
+
+// Initialize webhook logs on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadWebhookLogs();
+    
+    // Auto-refresh every 10 seconds
+    webhookLogRefreshInterval = setInterval(loadWebhookLogs, 10000);
+});
+
+// Clean up interval when page unloads
+window.addEventListener('beforeunload', function() {
+    if (webhookLogRefreshInterval) {
+        clearInterval(webhookLogRefreshInterval);
+    }
+});
+
+// Predefined SMS Templates
+const predefinedSMSTemplates = {
+    'friendly': 'Hi {first_name}! 😊 Your appointment is confirmed for {date_time}. Location: {location}. Looking forward to seeing you!',
+    'professional': 'Dear {first_name}, your appointment has been confirmed for {date_time} at {location}. Duration: {duration} minutes. Please arrive 10 minutes early.',
+    'casual': 'Hey {first_name}! Your appointment on {date_time} is all set. Location: {location}. See you then!',
+    'detailed': 'Hi {first_name}, appointment confirmed: {date_time} ({duration} min) with {practitioner} at {location}. Please contact us if you need to reschedule.'
+};
+
+function loadPredefinedSMSTemplate(templateKey) {
+    const template = predefinedSMSTemplates[templateKey];
+    if (template) {
+        document.getElementById('smsAppointmentTemplate').value = template;
+        updateSMSCharCount();
+        
+        // Visual feedback
+        const buttons = document.querySelectorAll('[onclick^="loadPredefinedSMSTemplate"]');
+        buttons.forEach(btn => btn.classList.remove('bg-brand-bright-teal', 'text-white', 'border-brand-bright-teal'));
+        event.target.closest('button').classList.add('bg-brand-bright-teal', 'text-white', 'border-brand-bright-teal');
+        
+        setTimeout(() => {
+            event.target.closest('button').classList.remove('bg-brand-bright-teal', 'text-white', 'border-brand-bright-teal');
+        }, 1000);
+    }
+}
+
+function updateSMSCharCount() {
+    const textarea = document.getElementById('smsAppointmentTemplate');
+    const charCount = document.getElementById('smsCharCount');
+    const length = textarea.value.length;
+    charCount.textContent = `${length}/160`;
+    
+    if (length > 160) {
+        charCount.classList.add('text-red-600', 'font-bold');
+        charCount.classList.remove('text-gray-500');
+    } else if (length > 140) {
+        charCount.classList.add('text-yellow-600');
+        charCount.classList.remove('text-gray-500', 'text-red-600', 'font-bold');
+    } else {
+        charCount.classList.remove('text-red-600', 'text-yellow-600', 'font-bold');
+        charCount.classList.add('text-gray-500');
+    }
+}
+
+// Load saved templates on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Add character counter listener
+    const smsTextarea = document.getElementById('smsAppointmentTemplate');
+    if (smsTextarea) {
+        smsTextarea.addEventListener('input', updateSMSCharCount);
+        updateSMSCharCount();
+    }
+    
+    // Load saved templates from server
+    fetch('/api/notification-templates')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.templates) {
+                    const smsTemplate = data.templates.find(t => t.template_type === 'sms' && t.template_name === 'appointment_confirmation');
+                    const emailTemplate = data.templates.find(t => t.template_type === 'email' && t.template_name === 'appointment_confirmation');
+                    
+                    if (smsTemplate && document.getElementById('smsAppointmentTemplate')) {
+                        document.getElementById('smsAppointmentTemplate').value = smsTemplate.message || '';
+                        updateSMSCharCount();
+                    }
+                    
+                    if (emailTemplate) {
+                        if (emailTemplate.subject && document.getElementById('emailSubjectTemplate')) {
+                            document.getElementById('emailSubjectTemplate').value = emailTemplate.subject;
+                        }
+                        if (emailTemplate.message && document.getElementById('emailBodyTemplate')) {
+                            document.getElementById('emailBodyTemplate').value = emailTemplate.message;
+                        }
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading notification templates:', error);
+        });
+});
+</script>
+{% endblock %}

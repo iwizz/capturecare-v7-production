@@ -1,0 +1,13 @@
+OperationalError
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: patients.stripe_customer_id
+[SQL: SELECT patients.id AS patients_id, patients.clinician_id AS patients_clinician_id, patients.withings_user_id AS patients_withings_user_id, patients.cliniko_patient_id AS patients_cliniko_patient_id, patients.first_name AS patients_first_name, patients.last_name AS patients_last_name, patients.email AS patients_email, patients.date_of_birth AS patients_date_of_birth, patients.phone AS patients_phone, patients.mobile AS patients_mobile, patients.sex AS patients_sex, patients.address_line1 AS patients_address_line1, patients.address_line2 AS patients_address_line2, patients.city AS patients_city, patients.state AS patients_state, patients.postcode AS patients_postcode, patients.country AS patients_country, patients.emergency_contact_name AS patients_emergency_contact_name, patients.emergency_contact_phone AS patients_emergency_contact_phone, patients.emergency_contact_email AS patients_emergency_contact_email, patients.emergency_contact_relationship AS patients_emergency_contact_relationship, patients.emergency_contact_consent AS patients_emergency_contact_consent, patients.gp_name AS patients_gp_name, patients.gp_address AS patients_gp_address, patients.gp_phone AS patients_gp_phone, patients.has_gp AS patients_has_gp, patients.current_medications AS patients_current_medications, patients.owns_smart_device AS patients_owns_smart_device, patients.health_focus_areas AS patients_health_focus_areas, patients.occupation AS patients_occupation, patients.medicare_number AS patients_medicare_number, patients.dva_number AS patients_dva_number, patients.notes AS patients_notes, patients.medical_alerts AS patients_medical_alerts, patients.terms_consent AS patients_terms_consent, patients.withings_access_token AS patients_withings_access_token, patients.withings_refresh_token AS patients_withings_refresh_token, patients.withings_token_expiry AS patients_withings_token_expiry, patients.stripe_customer_id AS patients_stripe_customer_id, patients.created_at AS patients_created_at, patients.updated_at AS patients_updated_at 
+FROM patients]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+Traceback (most recent call last)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+self.dialect.do_execute(
+^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+cursor.execute(statement, parameters)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,2010 @@
+{% extends "base.html" %}
+
+{% block title %}Master Calendar - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <div class="flex justify-between items-start">
+        <div>
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">
+                <i class="fas fa-calendar-alt text-brand-bright-teal mr-3"></i>Master Calendar
+            </h1>
+            <p class="text-gray-600">View and manage all appointments across practitioners</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <!-- Appointment Stats -->
+            <div id="appointmentStats" class="bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
+                <div class="text-xs text-gray-500 mb-1">Total Appointments</div>
+                <div id="totalAppointments" class="text-2xl font-bold text-brand-bright-teal">-</div>
+            </div>
+            <button onclick="openCreateAppointmentModal()" 
+                    class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                <i class="fas fa-plus mr-2"></i>New Appointment
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Practitioner Filter -->
+<div class="bg-white rounded-lg shadow-md p-6 mb-8">
+    <div class="flex items-center justify-between">
+        <label class="font-semibold text-gray-700">
+            <i class="fas fa-filter mr-2"></i>Filter Practitioners:
+        </label>
+        
+        <div class="flex items-center gap-2 flex-wrap">
+            {% for practitioner in practitioners %}
+            <button type="button" 
+                    id="practitioner-{{ practitioner.id }}" 
+                    data-practitioner-id="{{ practitioner.id }}"
+                    onclick="togglePractitioner({{ practitioner.id }})"
+                    class="practitioner-toggle px-4 py-2 rounded-lg border-2 transition-all duration-200 flex items-center gap-2 hover:shadow-md active"
+                    style="border-color: {{ practitioner.calendar_color }};">
+                <div class="w-3 h-3 rounded-full" style="background-color: {{ practitioner.calendar_color }};"></div>
+                <span class="font-medium">{{ practitioner.full_name }}</span>
+                <i class="fas fa-check text-green-600"></i>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- View Toggle -->
+<div class="bg-white rounded-lg shadow-md p-4 mb-4">
+    <div class="flex items-center justify-between">
+        <div class="flex gap-2 border-b-2 border-gray-200">
+            <button id="viewMonth" onclick="switchView('month')" class="px-4 py-2 font-semibold text-brand-bright-teal border-b-2 border-brand-bright-teal">
+                Month
+            </button>
+            <button id="viewWeek" onclick="switchView('week')" class="px-4 py-2 font-semibold text-gray-600 hover:text-brand-bright-teal transition border-b-2 border-transparent hover:border-brand-bright-teal">
+                Week
+            </button>
+            <button id="viewDay" onclick="switchView('day')" class="px-4 py-2 font-semibold text-gray-600 hover:text-brand-bright-teal transition border-b-2 border-transparent hover:border-brand-bright-teal">
+                Day
+            </button>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Block Mode Toggle -->
+            <div class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
+                <input type="checkbox" id="blockModeToggle" onchange="toggleBlockMode()" class="w-4 h-4 text-red-600 rounded focus:ring-red-500">
+                <label for="blockModeToggle" class="text-sm font-medium text-gray-700 cursor-pointer">
+                    <i class="fas fa-ban mr-1"></i>Block Mode
+                </label>
+            </div>
+            <button onclick="previousPeriod()" class="p-2 rounded-full hover:bg-gray-100 transition">
+                <i class="fas fa-chevron-left text-gray-600"></i>
+            </button>
+            <span id="currentPeriod" class="font-semibold text-gray-700 px-4"></span>
+            <button onclick="nextPeriod()" class="p-2 rounded-full hover:bg-gray-100 transition">
+                <i class="fas fa-chevron-right text-gray-600"></i>
+            </button>
+            <button onclick="goToToday()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition text-sm font-medium">
+                Today
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Doodle-Style Week Grid View -->
+<div id="weekGridView" class="bg-white rounded-lg shadow-md p-6 border-2 border-blue-200 hidden">
+    <div id="weekGridContainer"></div>
+</div>
+
+<!-- Month Grid View with Colored Circles -->
+<div id="monthGridView" class="bg-white rounded-lg shadow-md p-6">
+    <div id="monthGridContainer"></div>
+</div>
+
+<!-- FullCalendar View (for Day view) -->
+<div id="fullCalendarView" class="bg-white rounded-lg shadow-md p-6 hidden">
+    <div id="calendar"></div>
+</div>
+
+<!-- Create/Edit Appointment Modal -->
+<div id="appointmentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <!-- Modal Header -->
+        <div class="bg-gradient-to-r from-brand-teal to-brand-bright-teal text-white p-6">
+            <div class="flex justify-between items-center">
+                <h2 id="appointmentModalTitle" class="text-2xl font-bold">New Appointment</h2>
+                <button onclick="closeAppointmentModal()" class="text-white hover:text-gray-200 text-2xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Modal Content -->
+        <form id="appointmentForm" class="flex-1 flex flex-col overflow-hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 flex-1 overflow-y-auto">
+                <!-- Left Column: Appointment Details -->
+                <div class="p-6 border-r border-gray-200 space-y-4 bg-gray-50">
+                    <input type="hidden" id="appointmentId">
+                    
+                    <!-- Patient Selection -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-user mr-2"></i>Patient *
+                        </label>
+                        <select id="appointmentPatient" required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                            <option value="">Select Patient</option>
+                            {% for patient in patients %}
+                            <option value="{{ patient.id }}">{{ patient.first_name }} {{ patient.last_name }} ({{ patient.email }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Practitioner Selection -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-user-md mr-2"></i>Practitioner *
+                        </label>
+                        <select id="appointmentPractitioner" required onchange="loadAvailableTimeSlots()"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                            <option value="">Select Practitioner</option>
+                            <option value="any">Any Available Practitioner</option>
+                            {% for practitioner in practitioners %}
+                            <option value="{{ practitioner.id }}">{{ practitioner.full_name }} ({{ practitioner.role }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Duration -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-hourglass-half mr-2"></i>Duration *
+                        </label>
+                        <select id="appointmentDuration" required onchange="loadAvailableTimeSlots()"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="45">45 minutes</option>
+                            <option value="60" selected>60 minutes</option>
+                            <option value="90">90 minutes</option>
+                            <option value="120">2 hours</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Appointment Title -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-heading mr-2"></i>Title *
+                        </label>
+                        <input type="text" id="appointmentTitle" required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal"
+                               placeholder="e.g., Initial Consultation">
+                    </div>
+                    
+                    <!-- Appointment Type -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-tag mr-2"></i>Type
+                        </label>
+                        <select id="appointmentType"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal">
+                            <option value="consultation">Consultation</option>
+                            <option value="follow_up">Follow-up</option>
+                            <option value="assessment">Assessment</option>
+                            <option value="treatment">Treatment</option>
+                            <option value="review">Review</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Location -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-map-marker-alt mr-2"></i>Location
+                        </label>
+                        <input type="text" id="appointmentLocation"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal"
+                               placeholder="e.g., Room 1, Telehealth">
+                    </div>
+                    
+                    <!-- Notes -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-notes-medical mr-2"></i>Notes
+                        </label>
+                        <textarea id="appointmentNotes" rows="2"
+                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal"
+                                  placeholder="Additional notes..."></textarea>
+                    </div>
+                </div>
+                
+                <!-- Right Column: Calendar & Time Selection -->
+                <div class="p-6 bg-white">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Select a Date & Time</h3>
+                    
+                    <!-- Date Picker (Hidden input, shown as calendar) -->
+                    <input type="date" id="appointmentDate" required onchange="loadAvailableTimeSlots()"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal mb-4">
+                    
+                    <!-- Hidden Time Select (for compatibility) -->
+                    <input type="hidden" id="appointmentTime" required>
+                    
+                    <!-- Loading Indicator -->
+                    <div id="timeLoading" class="hidden text-center py-8 text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                        <p>Loading available times...</p>
+                    </div>
+                    
+                    <!-- Time Slots Container -->
+                    <div id="timeSlotsContainer" class="space-y-2">
+                        <p class="text-sm text-gray-500 text-center py-8">
+                            Select a practitioner, duration, and date to see available times
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Action Buttons (Bottom) -->
+            <div class="flex justify-between items-center p-6 border-t border-gray-200 bg-gray-50">
+                <button type="button" id="deleteAppointmentBtn" onclick="deleteAppointment()" 
+                        class="hidden px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold">
+                    <i class="fas fa-trash mr-2"></i>Delete
+                </button>
+                <div class="flex space-x-3 ml-auto">
+                    <button type="button" onclick="closeAppointmentModal()" 
+                            class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-semibold">
+                        <i class="fas fa-times mr-2"></i>Cancel
+                    </button>
+                    <button type="submit" id="saveAppointmentBtn"
+                            class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                        <i class="fas fa-save mr-2"></i>Save Appointment
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- FullCalendar CSS -->
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+
+<script>
+let calendar;
+let currentFilter = '';
+
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('calendar');
+    
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        firstDay: 1, // Start week on Monday (Australian standard)
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        },
+        editable: true,
+        droppable: true,
+        selectable: true,
+        selectMirror: true,
+        dayMaxEvents: true,
+        weekends: true,
+        height: 'auto',
+        
+        // Event sources - multiple sources for appointments and availability
+        eventSources: [
+            // Source 1: Appointments
+            function(info, successCallback, failureCallback) {
+                fetch('/api/calendar/events')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Filter events based on active practitioners
+                            const filteredEvents = data.events.filter(event => {
+                                if (activePractitioners.size === 0) return true;
+                                const practId = event.extendedProps.practitioner_id;
+                                return practId && activePractitioners.has(practId.toString());
+                            });
+                            successCallback(filteredEvents);
+                        } else {
+                            failureCallback();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading events:', error);
+                        failureCallback();
+                    });
+            },
+            // Source 2: Availability blocks (background)
+            function(info, successCallback, failureCallback) {
+                const start = info.startStr.split('T')[0];
+                const end = info.endStr.split('T')[0];
+                
+                // Build query params
+                const params = new URLSearchParams({
+                    start: start,
+                    end: end
+                });
+                
+                // Add practitioner filter if only one is active
+                if (activePractitioners.size === 1) {
+                    params.append('practitioner_id', Array.from(activePractitioners)[0]);
+                }
+                
+                fetch(`/api/calendar/availability-blocks?${params}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Filter blocks by active practitioners
+                            const filteredBlocks = data.blocks.filter(block => {
+                                if (activePractitioners.size === 0) return true;
+                                const practId = block.extendedProps.practitioner_id;
+                                return practId && activePractitioners.has(practId.toString());
+                            });
+                            successCallback(filteredBlocks);
+                        } else {
+                            failureCallback();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading availability blocks:', error);
+                        failureCallback();
+                    });
+            }
+        ],
+        
+        // Click on empty slot to create appointment
+        select: function(info) {
+            openCreateAppointmentModal(info.start);
+        },
+        
+        // Click on event to edit
+        eventClick: function(info) {
+            editAppointment(info.event);
+        },
+        
+        // Drag and drop to reschedule/reassign
+        eventDrop: function(info) {
+            updateAppointmentTime(info.event);
+        },
+        
+        // Resize event
+        eventResize: function(info) {
+            updateAppointmentTime(info.event);
+        }
+    });
+    
+    calendar.render();
+});
+
+// Track which practitioners are currently active
+let activePractitioners = new Set();
+let currentView = 'month';
+let currentWeekStart = new Date();
+let blockMode = false;
+let selectedPractitionerForBlock = null;
+
+// Initialize all practitioners as active on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const buttons = document.querySelectorAll('.practitioner-toggle');
+    buttons.forEach(button => {
+        const practitionerId = button.getAttribute('data-practitioner-id');
+        activePractitioners.add(practitionerId);
+    });
+    
+    // Initialize month view by default
+    setMonthStart(new Date());
+    loadMonthGrid();
+});
+
+// Week Grid View Functions
+function setWeekStart(date) {
+    // Set to Monday of the week
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+    currentWeekStart = new Date(d.setDate(diff));
+    currentWeekStart.setHours(0, 0, 0, 0);
+    updatePeriodDisplay();
+}
+
+function updatePeriodDisplay() {
+    if (currentView === 'week') {
+        const end = new Date(currentWeekStart);
+        end.setDate(end.getDate() + 6);
+        
+        const options = { month: 'short', day: 'numeric' };
+        const startStr = currentWeekStart.toLocaleDateString('en-US', options);
+        const endStr = end.toLocaleDateString('en-US', options);
+        const year = currentWeekStart.getFullYear();
+        
+        document.getElementById('currentPeriod').textContent = `${startStr} – ${endStr}, ${year}`;
+    } else if (currentView === 'month') {
+        const monthName = currentMonthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        document.getElementById('currentPeriod').textContent = monthName;
+    } else {
+        // For day view, FullCalendar handles it
+    }
+}
+
+let currentMonthStart = new Date();
+
+function setMonthStart(date) {
+    const d = new Date(date);
+    d.setDate(1); // First day of month
+    d.setHours(0, 0, 0, 0);
+    currentMonthStart = d;
+    updatePeriodDisplay();
+}
+
+function previousPeriod() {
+    if (currentView === 'week') {
+        currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+        loadWeekGrid();
+    } else if (currentView === 'month') {
+        currentMonthStart.setMonth(currentMonthStart.getMonth() - 1);
+        loadMonthGrid();
+    } else {
+        if (calendar) calendar.prev();
+    }
+}
+
+function nextPeriod() {
+    if (currentView === 'week') {
+        currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+        loadWeekGrid();
+    } else if (currentView === 'month') {
+        currentMonthStart.setMonth(currentMonthStart.getMonth() + 1);
+        loadMonthGrid();
+    } else {
+        if (calendar) calendar.next();
+    }
+}
+
+function goToToday() {
+    if (currentView === 'week') {
+        setWeekStart(new Date());
+        loadWeekGrid();
+    } else if (currentView === 'month') {
+        setMonthStart(new Date());
+        loadMonthGrid();
+    } else {
+        if (calendar) calendar.today();
+    }
+}
+
+function switchView(view) {
+    currentView = view;
+    
+    // Update button styles
+    document.getElementById('viewMonth').classList.remove('text-brand-bright-teal', 'border-brand-bright-teal');
+    document.getElementById('viewWeek').classList.remove('text-brand-bright-teal', 'border-brand-bright-teal');
+    document.getElementById('viewDay').classList.remove('text-brand-bright-teal', 'border-brand-bright-teal');
+    
+    document.getElementById('viewMonth').classList.add('text-gray-600', 'border-transparent');
+    document.getElementById('viewWeek').classList.add('text-gray-600', 'border-transparent');
+    document.getElementById('viewDay').classList.add('text-gray-600', 'border-transparent');
+    
+    if (view === 'week') {
+        document.getElementById('viewWeek').classList.remove('text-gray-600', 'border-transparent');
+        document.getElementById('viewWeek').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
+        document.getElementById('weekGridView').classList.remove('hidden');
+        document.getElementById('monthGridView').classList.add('hidden');
+        document.getElementById('fullCalendarView').classList.add('hidden');
+        loadWeekGrid();
+    } else if (view === 'month') {
+        document.getElementById('viewMonth').classList.remove('text-gray-600', 'border-transparent');
+        document.getElementById('viewMonth').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
+        document.getElementById('weekGridView').classList.add('hidden');
+        document.getElementById('monthGridView').classList.remove('hidden');
+        document.getElementById('fullCalendarView').classList.add('hidden');
+        loadMonthGrid();
+    } else {
+        document.getElementById('viewDay').classList.remove('text-gray-600', 'border-transparent');
+        document.getElementById('viewDay').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
+        document.getElementById('weekGridView').classList.add('hidden');
+        document.getElementById('monthGridView').classList.add('hidden');
+        document.getElementById('fullCalendarView').classList.remove('hidden');
+        calendar.changeView('timeGridDay');
+    }
+}
+
+async function loadWeekGrid() {
+    const container = document.getElementById('weekGridContainer');
+    container.innerHTML = '<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-gray-400"></i><p class="text-gray-500 mt-2">Loading availability...</p></div>';
+    
+    // Get week dates
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(currentWeekStart);
+        date.setDate(date.getDate() + i);
+        weekDates.push(date);
+    }
+    
+    // Generate time slots (8am to 6pm, 30-min intervals)
+    const timeSlots = [];
+    for (let hour = 8; hour < 18; hour++) {
+        for (let minute of [0, 30]) {
+            timeSlots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+        }
+    }
+    
+    // Load availability and appointments for all active practitioners
+    // Track which practitioners are available at each time slot
+    const availabilityData = {}; // { dateStr: { timeStr: [{id, name, color}] } }
+    const appointmentsData = {};
+    const blockedSlots = {}; // Track blocked slots
+    const practitionerInfo = {}; // Cache practitioner info {id: {name, color}}
+    
+    // Load practitioner info first
+    try {
+        const practitionersResponse = await fetch('/api/users/practitioners');
+        const practitionersData = await practitionersResponse.json();
+        if (practitionersData.success) {
+            practitionersData.users.forEach(pract => {
+                if (activePractitioners.has(pract.id.toString())) {
+                    practitionerInfo[pract.id] = {
+                        name: pract.name,
+                        color: pract.color || '#10b981'
+                    };
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error loading practitioners:', error);
+    }
+    
+    // Also load full appointment details for patient names
+    try {
+        const eventsResponse = await fetch('/api/calendar/events');
+        const eventsData = await eventsResponse.json();
+        if (eventsData.success) {
+            console.log(`📅 Week view: Loaded ${eventsData.events.length} appointments from API`);
+            eventsData.events.forEach(event => {
+                const practId = event.extendedProps?.practitioner_id;
+                // Show appointments if no practitioners are selected OR if practitioner is in active set
+                const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
+                
+                if (shouldShow) {
+                    const startDate = new Date(event.start);
+                    const dateStr = startDate.toISOString().split('T')[0];
+                    const timeStr = startDate.toTimeString().slice(0, 5);
+                    const endDate = new Date(event.end);
+                    const endTimeStr = endDate.toTimeString().slice(0, 5);
+                    
+                    if (!appointmentsData[dateStr]) appointmentsData[dateStr] = [];
+                    appointmentsData[dateStr].push({
+                        start: timeStr,
+                        end: endTimeStr,
+                        title: event.title,
+                        patientName: event.extendedProps?.patient_name || 'Unknown Patient',
+                        patientId: event.extendedProps?.patient_id || '',
+                        practitionerId: practId,
+                        practitionerName: practitionerInfo[practId]?.name || 'Unknown',
+                        practitionerColor: practitionerInfo[practId]?.color || '#3b82f6',
+                        appointmentId: event.id || ''
+                    });
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error loading appointments:', error);
+    }
+    
+    // Load blocked slots (exceptions) for each practitioner
+    for (const practitionerId of activePractitioners) {
+        for (const date of weekDates) {
+            const dateStr = date.toISOString().split('T')[0];
+            
+            try {
+                const exceptionsResponse = await fetch(`/api/availability-exceptions?user_id=${practitionerId}`);
+                const exceptionsData = await exceptionsResponse.json();
+                if (exceptionsData.success) {
+                    exceptionsData.exceptions.forEach(ex => {
+                        if (ex.exception_date === dateStr && !ex.is_all_day) {
+                            if (!blockedSlots[dateStr]) blockedSlots[dateStr] = [];
+                            blockedSlots[dateStr].push({
+                                start: ex.start_time,
+                                end: ex.end_time,
+                                practitionerId: practitionerId
+                            });
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error(`Error loading exceptions for ${dateStr}:`, error);
+            }
+            
+            // Load availability - track which practitioners are available
+            try {
+                const availResponse = await fetch(`/api/calendar/availability/${practitionerId}?date=${dateStr}&duration=30`);
+                const availData = await availResponse.json();
+                if (availData.success) {
+                    if (!availabilityData[dateStr]) availabilityData[dateStr] = {};
+                    availData.available_slots.forEach(slot => {
+                        if (!availabilityData[dateStr][slot]) {
+                            availabilityData[dateStr][slot] = [];
+                        }
+                        availabilityData[dateStr][slot].push({
+                            id: practitionerId,
+                            name: practitionerInfo[practitionerId]?.name || 'Unknown',
+                            color: practitionerInfo[practitionerId]?.color || '#10b981'
+                        });
+                    });
+                }
+            } catch (error) {
+                console.error(`Error loading availability for ${dateStr}:`, error);
+            }
+        }
+    }
+    
+    // Build grid HTML
+    let html = '<div class="overflow-x-auto">';
+    html += '<table class="w-full border-collapse">';
+    
+    // Header row with days
+    html += '<thead><tr>';
+    html += '<th class="sticky left-0 z-10 bg-white border-r-2 border-gray-300 p-3 text-left font-semibold text-gray-700 min-w-[120px]">Time</th>';
+    weekDates.forEach(date => {
+        const dateStr = date.toISOString().split('T')[0];
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+        const dayNum = date.getDate();
+        const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+        html += `<th class="border-r border-gray-200 p-3 text-center font-semibold text-gray-700 min-w-[140px]">
+            <div class="text-xs text-gray-500">${monthName}</div>
+            <div class="text-lg font-bold">${dayNum}</div>
+            <div class="text-xs text-gray-500">${dayName}</div>
+        </th>`;
+    });
+    html += '</tr></thead>';
+    
+    // Time slot rows
+    html += '<tbody>';
+    timeSlots.forEach(timeStr => {
+        const [hour, minute] = timeStr.split(':').map(Number);
+        const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const displayTime = `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+        
+        html += '<tr>';
+        html += `<td class="sticky left-0 z-10 bg-gray-50 border-r-2 border-gray-300 p-2 text-sm font-medium text-gray-700">${displayTime}</td>`;
+        
+        weekDates.forEach(date => {
+            const dateStr = date.toISOString().split('T')[0];
+            const availablePractitioners = availabilityData[dateStr]?.[timeStr] || [];
+            const isAvailable = availablePractitioners.length > 0;
+            
+            // Find booking for this time slot
+            const booking = appointmentsData[dateStr]?.find(apt => 
+                timeStr >= apt.start && timeStr < apt.end
+            );
+            const isBooked = !!booking;
+            
+            // Check if blocked (for any active practitioner)
+            const isBlocked = blockedSlots[dateStr]?.some(block => 
+                timeStr >= block.start && timeStr < block.end
+            );
+            
+            let cellClass = 'border-r border-b border-gray-200 p-1 text-center transition-all relative ';
+            let cellContent = '';
+            let onClickAction = '';
+            
+            if (isBlocked) {
+                // Red/orange for blocked slots
+                cellClass += 'bg-red-400 text-white hover:bg-red-500 cursor-pointer';
+                cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white"></i></div>';
+                onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}')`;
+            } else if (isBooked) {
+                // Show RED circle for booked appointments with patient hover and click to patient detail
+                const patientName = booking.patientName || 'Unknown Patient';
+                const patientId = booking.patientId || '';
+                const practName = booking.practitionerName || 'Unknown';
+                const practInitials = practName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+                const appointmentId = booking.appointmentId || '';
+                const timeDisplay = timeStr; // Format time for display
+                
+                cellClass += 'cursor-pointer hover:opacity-90 transition-opacity';
+                // Make the inner div draggable and clickable
+                cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center relative group" 
+                    draggable="true"
+                    ondragstart="handleDragStart(event, '${dateStr}', '${timeStr}', '${appointmentId}')"
+                    ondragend="handleDragEnd(event)"
+                    onclick="event.stopPropagation(); ${blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : patientId ? `window.location.href='/patients/${patientId}'` : `viewBooking('${dateStr}', '${timeStr}')`}"
+                    data-appointment-id="${appointmentId}"
+                    data-patient-id="${patientId}">
+                    <!-- Red circle for booked appointment -->
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md bg-red-500 hover:bg-red-600 transition-colors" 
+                        title="Booked: ${patientName} with ${practName} at ${timeDisplay} - Click to view patient">
+                        ${practInitials}
+                    </div>
+                    <!-- Hover tooltip with patient name -->
+                    <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none">
+                        <div class="font-semibold text-red-300">${patientName}</div>
+                        <div class="text-gray-300 text-[10px]">${practName}</div>
+                        <div class="text-gray-400 text-[10px]">${timeDisplay}</div>
+                        <div class="text-gray-500 text-[10px] mt-1">Click to view patient</div>
+                        <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                            <div class="border-4 border-transparent border-t-gray-900"></div>
+                        </div>
+                    </div>
+                </div>`;
+                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : patientId ? `window.location.href='/patients/${patientId}'` : `viewBooking('${dateStr}', '${timeStr}')`;
+            } else if (isAvailable) {
+                // Show practitioner icons with their colors
+                if (blockMode) {
+                    cellClass += 'bg-green-500 text-white hover:bg-green-600 cursor-pointer ring-2 ring-yellow-400';
+                    cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white opacity-50"></i></div>';
+                    onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}')`;
+                } else {
+                    cellClass += 'p-1 cursor-pointer';
+                    // Show small colored icons with initials
+                    if (availablePractitioners.length === 1) {
+                        const pract = availablePractitioners[0];
+                        const initials = pract.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+                        cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center" title="${pract.name}">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm" style="background-color: ${pract.color};">
+                                ${initials}
+                            </div>
+                        </div>`;
+                    } else {
+                        // Multiple practitioners - show small icons in a row or grid
+                        cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center gap-1 flex-wrap">';
+                        availablePractitioners.forEach((pract) => {
+                            const initials = pract.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+                            cellContent += `<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm" style="background-color: ${pract.color};" title="${pract.name}">
+                                ${initials}
+                            </div>`;
+                        });
+                        cellContent += '</div>';
+                    }
+                    // If single practitioner, pass their ID; otherwise null (user selects)
+                    const practId = availablePractitioners.length === 1 ? availablePractitioners[0].id : 'null';
+                    onClickAction = `selectTimeSlot('${dateStr}', '${timeStr}', ${practId})`;
+                }
+            } else {
+                // Grey for unavailable - NO click action
+                cellClass += 'bg-gray-100 text-gray-400 cursor-not-allowed';
+                cellContent = '<div class="text-xs">—</div>';
+                onClickAction = ''; // No action for unavailable slots
+            }
+            
+            // Add data attributes for right-click and drag
+            const dataAttrs = `data-date="${dateStr}" 
+                data-time="${timeStr}"
+                data-available="${isAvailable}"
+                data-booked="${isBooked}"
+                data-blocked="${isBlocked}"`;
+            
+            // Add practitioner IDs for right-click context
+            if (isAvailable && !isBooked) {
+                const practIds = availablePractitioners.map(p => p.id);
+                const practNames = availablePractitioners.map(p => p.name).join(', ');
+                // Make the entire cell clickable, not just the circle
+                html += `<td class="${cellClass}" 
+                    onclick="event.stopPropagation(); (function() { ${onClickAction} })();"
+                    oncontextmenu="event.preventDefault(); rightClickCreateAppointment(event, '${dateStr}', '${timeStr}', [${practIds.join(',')}], '${practNames}');"
+                    ${dataAttrs}
+                    data-practitioner-ids="${practIds.join(',')}">
+                    ${cellContent}
+                </td>`;
+            } else if (isBooked) {
+                // Booked appointments - drag handled by inner div, cell just for layout
+                const appointmentId = booking.appointmentId || '';
+                html += `<td class="${cellClass}" 
+                    ${dataAttrs}
+                    data-appointment-id="${appointmentId}">
+                    ${cellContent}
+                </td>`;
+            } else {
+                // Unavailable slots - no click action, just display
+                const onclickAttr = onClickAction ? `onclick="${onClickAction}"` : '';
+                html += `<td class="${cellClass}" 
+                    ${onclickAttr}
+                    ${dataAttrs}>
+                    ${cellContent}
+                </td>`;
+            }
+        });
+        
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table></div>';
+    
+    if (container) {
+        container.innerHTML = html;
+        console.log('✅ Week grid rendered successfully');
+    } else {
+        console.error('❌ weekGridContainer not found when trying to render!');
+    }
+    
+    // Initialize drag and drop after grid is loaded
+    initializeDragAndDrop();
+}
+
+function selectTimeSlot(dateStr, timeStr, practitionerId = null) {
+    console.log('selectTimeSlot called:', dateStr, timeStr, practitionerId);
+    
+    // Open appointment modal with pre-filled date and time
+    const date = new Date(dateStr);
+    
+    // Make sure modal elements exist
+    const modal = document.getElementById('appointmentModal');
+    const dateInput = document.getElementById('appointmentDate');
+    const timeInput = document.getElementById('appointmentTime');
+    const practitionerInput = document.getElementById('appointmentPractitioner');
+    const timeSlotsContainer = document.getElementById('timeSlotsContainer');
+    
+    if (!modal || !dateInput || !timeInput) {
+        console.error('Modal elements not found');
+        alert('Error: Appointment modal not found. Please refresh the page.');
+        return;
+    }
+    
+    // Open the modal
+    openCreateAppointmentModal(date);
+    
+    // Set date and time
+    dateInput.value = dateStr;
+    timeInput.value = timeStr;
+    
+    if (practitionerInput && practitionerId && practitionerId !== 'null') {
+        practitionerInput.value = practitionerId;
+        
+        // Since we're clicking on an available slot, show the selected time instead of loading slots
+        if (timeSlotsContainer) {
+            const practitionerName = practitionerInput.options[practitionerInput.selectedIndex]?.text || 'Practitioner';
+            timeSlotsContainer.innerHTML = `<div class="text-center py-4">
+                <p class="text-sm text-green-600 font-semibold">
+                    <i class="fas fa-check-circle mr-2"></i>Selected time: ${formatTime12Hour(timeStr)}
+                </p>
+                <p class="text-xs text-gray-500 mt-1">Practitioner: ${practitionerName.split(' (')[0]}</p>
+                <p class="text-xs text-gray-400 mt-1">This time slot is available</p>
+            </div>`;
+        }
+    } else if (timeSlotsContainer) {
+        // No practitioner selected, show message to select one
+        timeSlotsContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Select a practitioner to see available times</p>';
+    }
+    
+    // Highlight selected slot (green -> darker green)
+    setTimeout(() => {
+        document.querySelectorAll(`[data-date="${dateStr}"][data-time="${timeStr}"]`).forEach(cell => {
+            if (cell.dataset.available === 'true' && cell.dataset.booked !== 'true') {
+                cell.classList.remove('bg-green-500', 'hover:bg-green-600');
+                cell.classList.add('bg-green-700', 'ring-2', 'ring-green-300');
+            }
+        });
+    }, 100);
+}
+
+async function loadMonthGrid() {
+    const container = document.getElementById('monthGridContainer');
+    if (!container) {
+        console.error('❌ monthGridContainer not found!');
+        return;
+    }
+    
+    container.innerHTML = '<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-gray-400"></i><p class="text-gray-500 mt-2">Loading calendar...</p></div>';
+    
+    // Ensure currentMonthStart is initialized
+    if (!currentMonthStart) {
+        currentMonthStart = new Date();
+        currentMonthStart.setDate(1);
+        currentMonthStart.setHours(0, 0, 0, 0);
+    }
+    
+    // Calculate month dates
+    const year = currentMonthStart.getFullYear();
+    const month = currentMonthStart.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    
+    // Adjust for Monday start (0 = Monday)
+    const startOffset = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
+    
+    // Load appointments and availability for the month
+    const monthDates = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+        monthDates.push(new Date(year, month, i));
+    }
+    
+    const availabilityData = {};
+    const appointmentsData = {};
+    const practitionerColors = {};
+    
+    // Get practitioner colors
+    {% for practitioner in practitioners %}
+    practitionerColors[{{ practitioner.id }}] = '{{ practitioner.calendar_color or "#10b981" }}';
+    {% endfor %}
+    
+    // Load appointments
+    try {
+        const eventsResponse = await fetch('/api/calendar/events');
+        const eventsData = await eventsResponse.json();
+        if (eventsData.success) {
+            console.log(`📅 Month view: Loaded ${eventsData.events.length} appointments from API`);
+            eventsData.events.forEach(event => {
+                const practId = event.extendedProps?.practitioner_id;
+                // Show appointments if no practitioners are selected OR if practitioner is in active set
+                const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
+                
+                if (shouldShow) {
+                    const startDate = new Date(event.start);
+                    const dateStr = startDate.toISOString().split('T')[0];
+                    
+                    if (!appointmentsData[dateStr]) appointmentsData[dateStr] = [];
+                    appointmentsData[dateStr].push({
+                        time: startDate.toTimeString().slice(0, 5),
+                        patientName: event.extendedProps?.patient_name || 'Unknown Patient',
+                        practitionerName: event.extendedProps?.practitioner_name || 'Unknown Practitioner',
+                        practitionerId: practId,
+                        title: event.title,
+                        color: practitionerColors[practId] || '#3b82f6'
+                    });
+                }
+            });
+            console.log(`📊 Month view: Processed appointments for ${Object.keys(appointmentsData).length} dates`);
+        } else {
+            console.error('❌ API returned error:', eventsData.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('❌ Error loading appointments:', error);
+        // Don't fail completely, just log the error and continue
+    }
+    
+    // Load availability for each day
+    if (activePractitioners.size > 0) {
+        for (const practitionerId of activePractitioners) {
+            for (const date of monthDates) {
+                const dateStr = date.toISOString().split('T')[0];
+                try {
+                    const availResponse = await fetch(`/api/calendar/availability/${practitionerId}?date=${dateStr}&duration=30`);
+                    const availData = await availResponse.json();
+                    if (availData.success && availData.available_slots.length > 0) {
+                        if (!availabilityData[dateStr]) availabilityData[dateStr] = [];
+                        availabilityData[dateStr].push({
+                            practitionerId: practitionerId,
+                            practitionerName: availData.practitioner || 'Practitioner',
+                            slotCount: availData.available_slots.length,
+                            color: practitionerColors[practitionerId] || '#10b981'
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Error loading availability for ${dateStr}:`, error);
+                }
+            }
+        }
+    } else {
+        console.warn('⚠️ No active practitioners selected - availability will not be loaded');
+    }
+    
+    // Build calendar HTML
+    let html = '<div class="calendar-month">';
+    
+    // Day headers
+    html += '<div class="grid grid-cols-7 gap-1 mb-2">';
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    dayNames.forEach(day => {
+        html += `<div class="text-center font-semibold text-gray-600 text-sm py-2">${day}</div>`;
+    });
+    html += '</div>';
+    
+    // Calendar grid
+    html += '<div class="grid grid-cols-7 gap-1">';
+    
+    // Empty cells for days before month starts
+    for (let i = 0; i < startOffset; i++) {
+        html += '<div class="aspect-square bg-gray-50 rounded-lg"></div>';
+    }
+    
+    // Days of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month, day);
+        const dateStr = date.toISOString().split('T')[0];
+        const isToday = dateStr === new Date().toISOString().split('T')[0];
+        
+        const appointments = appointmentsData[dateStr] || [];
+        const availability = availabilityData[dateStr] || [];
+        
+        // Only make day cell clickable if there are appointments or availability
+        const hasClickableContent = appointments.length > 0 || availability.length > 0;
+        const dayCellClass = hasClickableContent 
+            ? `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 hover:shadow-md transition-all cursor-pointer relative group`
+            : `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 relative group`;
+        const dayCellOnClick = hasClickableContent ? `onclick="selectDay('${dateStr}')"` : '';
+        
+        html += `<div class="${dayCellClass}" ${dayCellOnClick}>`;
+        
+        // Day number
+        html += `<div class="text-sm font-semibold ${isToday ? 'text-brand-bright-teal' : 'text-gray-700'} mb-1">${day}</div>`;
+        
+        // Circles container
+        html += '<div class="flex flex-wrap gap-1 items-center justify-center min-h-[60px]">';
+        
+        // Show availability circles (green)
+        availability.forEach(avail => {
+            const uniqueId = `avail-${dateStr}-${avail.practitionerId}`;
+            html += `<div class="relative group/circle">
+                <div class="w-6 h-6 rounded-full ${avail.slotCount > 10 ? 'bg-green-500' : avail.slotCount > 5 ? 'bg-green-400' : 'bg-green-300'} border-2 border-white shadow-sm hover:scale-125 transition-transform cursor-pointer"
+                    style="background-color: ${avail.color};"
+                    data-practitioner="${avail.practitionerName}"
+                    data-practitioner-id="${avail.practitionerId}"
+                    data-slots="${avail.slotCount}"
+                    data-date="${dateStr}"
+                    onclick="event.stopPropagation(); createAppointmentFromAvailability('${dateStr}', ${avail.practitionerId}, '${avail.practitionerName}');">
+                </div>
+                <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover/circle:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none">
+                    <div class="font-semibold">${avail.practitionerName}</div>
+                    <div class="text-gray-300">${avail.slotCount} slots available</div>
+                    <div class="text-gray-400 text-[10px] mt-1">Click to book</div>
+                    <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                        <div class="border-4 border-transparent border-t-gray-900"></div>
+                    </div>
+                </div>
+            </div>`;
+        });
+        
+        // Show appointment circles (blue)
+        appointments.forEach((apt, index) => {
+            const uniqueId = `apt-${dateStr}-${index}`;
+            html += `<div class="relative group/circle">
+                <div class="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow-sm hover:scale-125 transition-transform cursor-pointer"
+                    style="background-color: ${apt.color};"
+                    data-patient="${apt.patientName}"
+                    data-practitioner="${apt.practitionerName}"
+                    data-time="${apt.time}"
+                    data-title="${apt.title}"
+                    data-date="${dateStr}">
+                </div>
+                <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover/circle:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none max-w-[200px]">
+                    <div class="font-semibold text-blue-300">${apt.patientName}</div>
+                    <div class="text-gray-300 text-[10px]">${apt.practitionerName}</div>
+                    <div class="text-gray-400 text-[10px]">${apt.time} - ${apt.title}</div>
+                    <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                        <div class="border-4 border-transparent border-t-gray-900"></div>
+                    </div>
+                </div>
+            </div>`;
+        });
+        
+        // If no appointments or availability, show empty state
+        if (appointments.length === 0 && availability.length === 0) {
+            html += '<div class="text-gray-300 text-xs">—</div>';
+        }
+        
+        html += '</div>'; // End circles container
+        html += '</div>'; // End day cell
+    }
+    
+    html += '</div>'; // End calendar grid
+    html += '</div>'; // End calendar-month
+    
+    if (container) {
+        container.innerHTML = html;
+        console.log('✅ Month grid rendered successfully');
+        
+        // Update stats after loading month grid
+        if (typeof loadAppointmentStats === 'function') {
+            loadAppointmentStats();
+        }
+    } else {
+        console.error('❌ monthGridContainer not found when trying to render!');
+    }
+    
+    // Update stats after loading month grid
+    if (typeof loadAppointmentStats === 'function') {
+        loadAppointmentStats();
+    }
+}
+
+function selectDay(dateStr) {
+    // Switch to week view and highlight that day, or open day view
+    const date = new Date(dateStr);
+    switchView('week');
+    setWeekStart(date);
+    loadWeekGrid();
+}
+
+function toggleBlockMode() {
+    blockMode = document.getElementById('blockModeToggle').checked;
+    if (blockMode) {
+        showNotification('🔒 Block Mode ON - Click slots to block/unblock them', 'info');
+        // If only one practitioner is active, use that; otherwise prompt
+        if (activePractitioners.size === 1) {
+            selectedPractitionerForBlock = Array.from(activePractitioners)[0];
+        } else if (activePractitioners.size === 0) {
+            showNotification('Please select at least one practitioner to block slots', 'error');
+            document.getElementById('blockModeToggle').checked = false;
+            blockMode = false;
+            return;
+        } else {
+            showNotification('Multiple practitioners selected. Blocks will apply to the first available slot.', 'info');
+        }
+    } else {
+        showNotification('Block Mode OFF', 'info');
+    }
+    if (currentView === 'week') loadWeekGrid();
+}
+
+async function toggleBlockSlot(dateStr, timeStr) {
+    if (!blockMode && !document.querySelector(`[data-date="${dateStr}"][data-time="${timeStr}"][data-blocked="true"]`)) {
+        // Not in block mode and not a blocked slot, so don't block
+        return;
+    }
+    
+    // Determine which practitioner to block for
+    let practitionerId = selectedPractitionerForBlock;
+    if (!practitionerId) {
+        // Find practitioner from the slot's context or use first active
+        if (activePractitioners.size === 1) {
+            practitionerId = Array.from(activePractitioners)[0];
+        } else {
+            showNotification('Please select only one practitioner when blocking slots', 'error');
+            return;
+        }
+    }
+    
+    // Check if slot is already blocked
+    const cell = document.querySelector(`[data-date="${dateStr}"][data-time="${timeStr}"]`);
+    const isCurrentlyBlocked = cell && cell.dataset.blocked === 'true';
+    
+    try {
+        const response = await fetch('/api/calendar/block-slot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                practitioner_id: parseInt(practitionerId),
+                date: dateStr,
+                start_time: timeStr,
+                reason: 'Blocked for capacity'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(
+                isCurrentlyBlocked ? '✅ Time slot unblocked' : '🔒 Time slot blocked',
+                'success'
+            );
+            // Reload the grid
+            if (currentView === 'week') loadWeekGrid();
+        } else {
+            showNotification('❌ Error: ' + (data.error || 'Failed to block/unblock slot'), 'error');
+        }
+    } catch (error) {
+        console.error('Error toggling block:', error);
+        showNotification('❌ Error blocking slot: ' + error.message, 'error');
+    }
+}
+
+function viewBooking(dateStr, timeStr) {
+    // Find the appointment from the events and open edit modal
+    fetch('/api/calendar/events')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const appointment = data.events.find(event => {
+                    const startDate = new Date(event.start);
+                    const eventDateStr = startDate.toISOString().split('T')[0];
+                    const eventTimeStr = startDate.toTimeString().slice(0, 5);
+                    return eventDateStr === dateStr && eventTimeStr === timeStr;
+                });
+                
+                if (appointment) {
+                    // Convert to FullCalendar event format and edit
+                    const fcEvent = {
+                        id: appointment.id,
+                        title: appointment.title,
+                        start: appointment.start,
+                        end: appointment.end,
+                        extendedProps: appointment.extendedProps || {}
+                    };
+                    editAppointment(fcEvent);
+                } else {
+                    showNotification('Appointment not found', 'error');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading appointment:', error);
+            showNotification('Error loading appointment details', 'error');
+        });
+}
+
+function togglePractitioner(practitionerId) {
+    const button = document.getElementById(`practitioner-${practitionerId}`);
+    const isActive = activePractitioners.has(practitionerId.toString());
+    
+    if (isActive) {
+        // Deactivate
+        activePractitioners.delete(practitionerId.toString());
+        button.classList.remove('active');
+        button.style.opacity = '0.5';
+        button.querySelector('.fa-check').style.display = 'none';
+    } else {
+        // Activate
+        activePractitioners.add(practitionerId.toString());
+        button.classList.add('active');
+        button.style.opacity = '1';
+        button.querySelector('.fa-check').style.display = 'inline';
+    }
+    
+    // Refetch calendar events and availability blocks
+    if (calendar) calendar.refetchEvents();
+    if (currentView === 'week') loadWeekGrid();
+    if (currentView === 'month') loadMonthGrid();
+}
+
+// Keep for backward compatibility but now uses activePractitioners
+function filterByPractitioner() {
+    calendar.refetchEvents();
+}
+
+function createAppointmentFromAvailability(dateStr, practitionerId, practitionerName) {
+    // Open appointment modal with pre-filled date and practitioner
+    openCreateAppointmentModal(dateStr);
+    
+    // Set the date
+    document.getElementById('appointmentDate').value = dateStr;
+    
+    // Set the practitioner
+    const practitionerSelect = document.getElementById('appointmentPractitioner');
+    if (practitionerSelect) {
+        practitionerSelect.value = practitionerId;
+        // Trigger change to load available time slots
+        practitionerSelect.dispatchEvent(new Event('change'));
+    }
+    
+    // Load available time slots for this date and practitioner
+    setTimeout(() => {
+        loadAvailableTimeSlots();
+    }, 100);
+}
+
+function openCreateAppointmentModal(startDate = null) {
+    document.getElementById('appointmentModalTitle').textContent = 'New Appointment';
+    document.getElementById('appointmentForm').reset();
+    document.getElementById('appointmentId').value = '';
+    document.getElementById('deleteAppointmentBtn').classList.add('hidden');
+    
+    if (startDate) {
+        const date = new Date(startDate);
+        document.getElementById('appointmentDate').value = date.toISOString().split('T')[0];
+        document.getElementById('appointmentTime').value = date.toTimeString().slice(0,5);
+    }
+    
+    document.getElementById('appointmentModal').classList.remove('hidden');
+}
+
+function editAppointment(event) {
+    document.getElementById('appointmentModalTitle').textContent = 'Edit Appointment';
+    document.getElementById('appointmentId').value = event.id;
+    document.getElementById('appointmentPatient').value = event.extendedProps.patient_id;
+    document.getElementById('appointmentPractitioner').value = event.extendedProps.practitioner_id || '';
+    document.getElementById('appointmentTitle').value = event.title.split(' - ')[1] || event.title;
+    document.getElementById('appointmentType').value = event.extendedProps.appointment_type || 'consultation';
+    
+    const startDate = new Date(event.start);
+    const dateStr = startDate.toISOString().split('T')[0];
+    const timeStr = startDate.toTimeString().slice(0,5);
+    
+    document.getElementById('appointmentDate').value = dateStr;
+    
+    const duration = (new Date(event.end) - new Date(event.start)) / 60000;
+    document.getElementById('appointmentDuration').value = duration;
+    
+    document.getElementById('appointmentLocation').value = event.extendedProps.location || '';
+    document.getElementById('appointmentNotes').value = event.extendedProps.notes || '';
+    
+    document.getElementById('deleteAppointmentBtn').classList.remove('hidden');
+    document.getElementById('appointmentModal').classList.remove('hidden');
+    
+    // Load available time slots and set the current time
+    if (event.extendedProps.practitioner_id) {
+        loadAvailableTimeSlots().then(() => {
+            document.getElementById('appointmentTime').value = timeStr;
+        });
+    } else {
+        // If no practitioner, just set the time directly
+        const timeSelect = document.getElementById('appointmentTime');
+        timeSelect.innerHTML = '<option value="">Select time...</option>';
+        generateStandardTimeSlots(timeSelect);
+        document.getElementById('appointmentTime').value = timeStr;
+    }
+}
+
+function closeAppointmentModal() {
+    document.getElementById('appointmentModal').classList.add('hidden');
+}
+
+document.getElementById('appointmentForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    const originalButtonText = submitButton.innerHTML;
+    
+    // Disable button and show loading
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+    
+    const appointmentId = document.getElementById('appointmentId').value;
+    const practitionerId = document.getElementById('appointmentPractitioner').value;
+    const selectedDate = document.getElementById('appointmentDate').value;
+    const selectedTime = document.getElementById('appointmentTime').value;
+    
+    // Validation
+    if (!practitionerId || practitionerId === 'any') {
+        showNotification('Please select a specific practitioner', 'error');
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+        return;
+    }
+    
+    if (!selectedTime) {
+        showNotification('Please select an available time slot', 'error');
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+        return;
+    }
+    
+    const formData = {
+        patient_id: parseInt(document.getElementById('appointmentPatient').value),
+        practitioner_id: parseInt(practitionerId),
+        title: document.getElementById('appointmentTitle').value,
+        appointment_type: document.getElementById('appointmentType').value,
+        date: selectedDate,
+        time: selectedTime,
+        duration_minutes: parseInt(document.getElementById('appointmentDuration').value),
+        location: document.getElementById('appointmentLocation').value,
+        notes: document.getElementById('appointmentNotes').value
+    };
+    
+    const url = appointmentId 
+        ? `/api/calendar/appointments/${appointmentId}`
+        : '/api/calendar/appointments';
+    const method = appointmentId ? 'PUT' : 'POST';
+    
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('✅ Appointment saved successfully!', 'success');
+            closeAppointmentModal();
+            if (calendar) calendar.refetchEvents();
+            if (currentView === 'week') loadWeekGrid();
+            if (currentView === 'month') loadMonthGrid();
+        } else {
+            showNotification('❌ Error: ' + (data.error || 'Failed to save appointment'), 'error');
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonText;
+        }
+    } catch (error) {
+        console.error('Error saving appointment:', error);
+        showNotification('❌ Error saving appointment: ' + error.message, 'error');
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+    }
+});
+
+// Notification system
+function showNotification(message, type = 'info') {
+    // Remove existing notifications
+    const existing = document.querySelector('.notification-toast');
+    if (existing) existing.remove();
+    
+    const notification = document.createElement('div');
+    notification.className = `notification-toast fixed top-4 right-4 z-50 px-6 py-4 rounded-lg shadow-2xl transform translate-x-full opacity-0 transition-all duration-300 ${
+        type === 'success' ? 'bg-green-500 text-white' :
+        type === 'error' ? 'bg-red-500 text-white' :
+        'bg-blue-500 text-white'
+    }`;
+    notification.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i><span>${message}</span></div>`;
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => {
+        notification.classList.remove('translate-x-full', 'opacity-0');
+        notification.classList.add('translate-x-0', 'opacity-100');
+    }, 10);
+    
+    // Auto remove after 4 seconds
+    setTimeout(() => {
+        notification.classList.add('translate-x-full', 'opacity-0');
+        setTimeout(() => notification.remove(), 300);
+    }, 4000);
+}
+
+async function updateAppointmentTime(event) {
+    const formData = {
+        start_time: event.start.toISOString(),
+        end_time: event.end.toISOString()
+    };
+    
+    try {
+        const response = await fetch(`/api/calendar/appointments/${event.id}/move`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('❌ Error: ' + data.error);
+            calendar.refetchEvents();
+        }
+    } catch (error) {
+        console.error('Error updating appointment:', error);
+        alert('❌ Error: ' + error.message);
+        calendar.refetchEvents();
+    }
+}
+
+async function deleteAppointment() {
+    if (!confirm('Are you sure you want to delete this appointment?')) {
+        return;
+    }
+    
+    const appointmentId = document.getElementById('appointmentId').value;
+    
+    try {
+        const response = await fetch(`/api/calendar/appointments/${appointmentId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ Appointment deleted successfully!');
+            closeAppointmentModal();
+            calendar.refetchEvents();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error deleting appointment:', error);
+        alert('❌ Error: ' + error.message);
+    }
+}
+
+// Load available time slots for selected practitioner and date
+async function loadAvailableTimeSlots() {
+    const practitionerId = document.getElementById('appointmentPractitioner').value;
+    const selectedDate = document.getElementById('appointmentDate').value;
+    const duration = parseInt(document.getElementById('appointmentDuration').value);
+    const timeInput = document.getElementById('appointmentTime');
+    const timeLoading = document.getElementById('timeLoading');
+    const timeSlotsContainer = document.getElementById('timeSlotsContainer');
+    
+    // Clear existing time slots
+    timeSlotsContainer.innerHTML = '';
+    timeInput.value = '';
+    
+    // Check if practitioner and date are selected
+    if (!practitionerId || !selectedDate) {
+        timeSlotsContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Select a practitioner, duration, and date to see available times</p>';
+        return;
+    }
+    
+    // Show loading
+    timeLoading.classList.remove('hidden');
+    
+    try {
+        let availableSlots = [];
+        let bookedSlots = [];
+        let isBlocked = false;
+        
+        if (practitionerId === 'any') {
+            // For "Any Practitioner", show message that they need to select a specific practitioner
+            timeSlotsContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Please select a specific practitioner to see their available time slots</p>';
+            timeLoading.classList.add('hidden');
+            return;
+        }
+        
+        // Fetch ALL available time slots from API for the selected practitioner
+        const response = await fetch(`/api/calendar/availability/${practitionerId}?date=${selectedDate}&duration=${duration}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            availableSlots = data.available_slots || [];
+            bookedSlots = data.booked_slots || [];
+            isBlocked = data.is_blocked || false;
+            
+            // Log for debugging
+            console.log(`📅 Loaded ${availableSlots.length} available time slots for practitioner ${practitionerId} on ${selectedDate}`);
+        } else {
+            timeSlotsContainer.innerHTML = '<p class="text-sm text-red-500 text-center py-8">Error loading availability: ' + (data.error || 'Unknown error') + '</p>';
+            timeLoading.classList.add('hidden');
+            return;
+        }
+        
+        // Sort ALL available time slots chronologically
+        const sortedAvailableSlots = availableSlots.sort((a, b) => {
+            const [hourA, minA] = a.split(':').map(Number);
+            const [hourB, minB] = b.split(':').map(Number);
+            return hourA * 60 + minA - (hourB * 60 + minB);
+        });
+        
+        let hasAvailableSlots = false;
+        
+        // Create compact grid layout for time slots with scrollable container
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-[400px] overflow-y-auto p-2';
+        
+        // Process ALL available time slots - show every single one
+        sortedAvailableSlots.forEach(timeStr => {
+            const displayTime = formatTime12Hour(timeStr);
+            
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'px-3 py-2.5 text-sm rounded-lg border-2 transition-all font-medium';
+            button.dataset.time = timeStr;
+            
+            // Check if booked
+            const isBooked = bookedSlots.some(booking => {
+                return timeStr >= booking.start && timeStr < booking.end;
+            });
+            
+            if (isBooked) {
+                // Booked slot - red, disabled
+                button.className += ' bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60';
+                button.innerHTML = `<span class="text-xs">${displayTime}</span><br><span class="text-[10px] text-red-500">Booked</span>`;
+                button.disabled = true;
+            } else {
+                // Available slot - clickable, prominent with hover effects
+                button.className += ' bg-white text-gray-700 border-gray-300 hover:border-brand-bright-teal hover:bg-brand-bright-teal hover:text-white hover:shadow-md cursor-pointer transform hover:scale-105';
+                button.innerHTML = `<span class="font-semibold">${displayTime}</span>`;
+                button.onclick = () => selectTimeSlot(timeStr, button);
+                hasAvailableSlots = true;
+            }
+            
+            gridContainer.appendChild(button);
+        });
+        
+        if (isBlocked) {
+            timeSlotsContainer.innerHTML = '<div class="text-center py-8"><i class="fas fa-ban text-4xl text-gray-400 mb-3"></i><p class="text-sm text-gray-500">This practitioner has blocked this entire day</p></div>';
+        } else if (!hasAvailableSlots) {
+            timeSlotsContainer.innerHTML = '<div class="text-center py-8"><i class="fas fa-calendar-times text-4xl text-gray-400 mb-3"></i><p class="text-sm text-gray-500">No available time slots for this date.</p><p class="text-xs text-gray-400 mt-2">The practitioner may not have set their availability for this day.</p></div>';
+        } else {
+            timeSlotsContainer.appendChild(gridContainer);
+        }
+    } catch (error) {
+        console.error('Error loading time slots:', error);
+        timeSlotsContainer.innerHTML = '<p class="text-sm text-red-500 text-center py-8">Error loading time slots</p>';
+    } finally {
+        timeLoading.classList.add('hidden');
+    }
+}
+
+// Helper function to generate standard time slots array
+function generateStandardTimeSlotsArray() {
+    const slots = [];
+    for (let hour = 8; hour < 18; hour++) {
+        for (let minute of [0, 30]) {
+            slots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+        }
+    }
+    return slots;
+}
+
+// Select time slot and update UI with better visual feedback
+function selectTimeSlot(timeStr, buttonElement) {
+    // Update hidden input
+    document.getElementById('appointmentTime').value = timeStr;
+    
+    // Remove selected class from all buttons
+    document.querySelectorAll('#timeSlotsContainer button').forEach(btn => {
+        if (!btn.disabled) {
+            btn.classList.remove('border-brand-bright-teal', 'bg-brand-bright-teal', 'text-white', 'ring-2', 'ring-brand-bright-teal', 'shadow-lg');
+            btn.className = btn.className.replace(/bg-brand-bright-teal|text-white|ring-2|ring-brand-bright-teal|shadow-lg/g, '');
+            if (!btn.className.includes('bg-white')) {
+                btn.className += ' bg-white text-gray-700 border-gray-300';
+            }
+        }
+    });
+    
+    // Add selected class to clicked button with animation
+    buttonElement.classList.remove('hover:border-brand-bright-teal', 'hover:bg-brand-bright-teal', 'hover:text-white', 'hover:shadow-md');
+    buttonElement.classList.add('border-brand-bright-teal', 'bg-brand-bright-teal', 'text-white', 'ring-2', 'ring-brand-bright-teal', 'shadow-lg', 'scale-105');
+    
+    // Add checkmark icon
+    if (!buttonElement.querySelector('.fa-check')) {
+        const checkIcon = document.createElement('i');
+        checkIcon.className = 'fas fa-check ml-1';
+        buttonElement.innerHTML = buttonElement.innerHTML.replace(/<span[^>]*>([^<]+)<\/span>/, '<span class="font-semibold">$1</span>');
+        buttonElement.appendChild(checkIcon);
+    }
+    
+    // Scroll into view if needed
+    buttonElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Generate standard 30-minute time slots (8 AM - 6 PM)
+function generateStandardTimeSlots(selectElement) {
+    const startHour = 8;
+    const endHour = 18;
+    
+    for (let hour = startHour; hour < endHour; hour++) {
+        for (let minute of [0, 30]) {
+            const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+            const displayTime = formatTime12Hour(timeStr);
+            
+            const option = document.createElement('option');
+            option.value = timeStr;
+            option.textContent = displayTime;
+            selectElement.appendChild(option);
+        }
+    }
+}
+
+// Convert 24-hour time to 12-hour format with AM/PM
+function formatTime12Hour(time24) {
+    const [hours, minutes] = time24.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 || 12;
+    return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+// Right-click context menu to create appointment
+function rightClickCreateAppointment(event, dateStr, timeStr, practitionerIds, practitionerNames) {
+    // If multiple practitioners, show selection menu
+    if (practitionerIds.length > 1) {
+        const menu = document.createElement('div');
+        menu.className = 'fixed bg-white rounded-lg shadow-2xl border-2 border-gray-200 z-50 p-4 min-w-[250px]';
+        menu.style.left = event.clientX + 'px';
+        menu.style.top = event.clientY + 'px';
+        menu.innerHTML = `
+            <div class="font-semibold text-gray-700 mb-3">Create Appointment</div>
+            <div class="text-xs text-gray-500 mb-2">Select Practitioner:</div>
+            ${practitionerIds.map((id, idx) => {
+                const name = practitionerNames.split(', ')[idx] || 'Unknown';
+                return `<button onclick="createAppointmentForPractitioner('${dateStr}', '${timeStr}', ${id}, '${name}'); document.body.removeChild(this.closest('.fixed'));" 
+                    class="w-full text-left px-3 py-2 hover:bg-gray-100 rounded mb-1 text-sm">
+                    ${name}
+                </button>`;
+            }).join('')}
+            <button onclick="document.body.removeChild(this.closest('.fixed'))" 
+                class="w-full text-center px-3 py-2 text-gray-500 hover:bg-gray-100 rounded mt-2 text-sm">
+                Cancel
+            </button>
+        `;
+        document.body.appendChild(menu);
+        
+        // Close menu on outside click
+        setTimeout(() => {
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target)) {
+                    document.body.removeChild(menu);
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            document.addEventListener('click', closeMenu);
+        }, 100);
+    } else {
+        // Single practitioner - create directly
+        createAppointmentForPractitioner(dateStr, timeStr, practitionerIds[0], practitionerNames);
+    }
+}
+
+function createAppointmentForPractitioner(dateStr, timeStr, practitionerId, practitionerName) {
+    openCreateAppointmentModal(new Date(dateStr));
+    
+    // Set date, time, and practitioner
+    document.getElementById('appointmentDate').value = dateStr;
+    document.getElementById('appointmentTime').value = timeStr;
+    document.getElementById('appointmentPractitioner').value = practitionerId;
+    
+    // Don't trigger loadAvailableTimeSlots since we already know the time slot is available
+    // Just set the time directly without reloading slots
+    const timeInput = document.getElementById('appointmentTime');
+    if (timeInput) {
+        timeInput.value = timeStr;
+    }
+    
+    // Hide the time slots container since we're using a specific time
+    const timeSlotsContainer = document.getElementById('timeSlotsContainer');
+    if (timeSlotsContainer) {
+        timeSlotsContainer.innerHTML = `<div class="text-center py-4">
+            <p class="text-sm text-green-600 font-semibold">
+                <i class="fas fa-check-circle mr-2"></i>Selected time: ${formatTime12Hour(timeStr)}
+            </p>
+            <p class="text-xs text-gray-500 mt-1">Practitioner: ${practitionerName}</p>
+        </div>`;
+    }
+    
+    showNotification(`Creating appointment for ${practitionerName} at ${formatTime12Hour(timeStr)}`, 'info');
+}
+
+// Drag and Drop functionality
+let draggedAppointment = null;
+let draggedElement = null;
+
+function handleDragStart(event, dateStr, timeStr, appointmentId) {
+    if (!appointmentId || appointmentId === '') {
+        console.error('No appointment ID for drag');
+        event.preventDefault();
+        return false;
+    }
+    
+    draggedAppointment = {
+        id: appointmentId,
+        date: dateStr,
+        time: timeStr
+    };
+    draggedElement = event.currentTarget;
+    
+    // Make the dragged element semi-transparent
+    event.currentTarget.style.opacity = '0.5';
+    event.currentTarget.style.cursor = 'grabbing';
+    
+    // Set drag data
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', appointmentId);
+    event.dataTransfer.setData('application/json', JSON.stringify(draggedAppointment));
+    
+    console.log('Drag started:', draggedAppointment);
+}
+
+function handleDragEnd(event) {
+    event.currentTarget.style.opacity = '1';
+    event.currentTarget.style.cursor = 'move';
+    
+    // Remove drop indicators
+    document.querySelectorAll('.drop-zone-active').forEach(el => {
+        el.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+    });
+    
+    // Reset dragged appointment if drop didn't happen
+    if (draggedAppointment) {
+        console.log('Drag ended without drop');
+    }
+}
+
+// Add drop handlers to cells - initialize after grid loads
+function initializeDragAndDrop() {
+    // Remove old listeners if any
+    const weekContainer = document.getElementById('weekGridContainer');
+    if (!weekContainer) return;
+    
+    // Remove existing listeners by cloning (clean slate)
+    const newContainer = weekContainer.cloneNode(true);
+    weekContainer.parentNode.replaceChild(newContainer, weekContainer);
+    
+    // Add dragover handler - must prevent default to allow drop
+    newContainer.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (draggedAppointment) {
+            const cell = e.target.closest('td[data-date][data-time]');
+            if (cell) {
+                // Remove highlight from all cells first
+                document.querySelectorAll('.drop-zone-active').forEach(el => {
+                    el.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+                });
+                
+                // Highlight valid drop zones
+                if (cell.dataset.available === 'true' && cell.dataset.booked !== 'true') {
+                    cell.classList.add('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+                    e.dataTransfer.dropEffect = 'move';
+                } else {
+                    e.dataTransfer.dropEffect = 'none';
+                }
+            }
+        }
+    }, false);
+    
+    // Add dragleave handler
+    newContainer.addEventListener('dragleave', function(e) {
+        const cell = e.target.closest('td');
+        if (cell && !cell.contains(e.relatedTarget)) {
+            cell.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+        }
+    }, false);
+    
+    // Add drop handler
+    newContainer.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (!draggedAppointment || !draggedAppointment.id) {
+            console.error('No dragged appointment');
+            return;
+        }
+        
+        const cell = e.target.closest('td[data-date][data-time]');
+        if (cell && cell.dataset.available === 'true' && cell.dataset.booked !== 'true') {
+            const newDate = cell.dataset.date;
+            const newTime = cell.dataset.time;
+            
+            console.log('Dropping appointment', draggedAppointment.id, 'to', newDate, newTime);
+            
+            // Show SMS notification popup
+            showSMSNotificationPopup(draggedAppointment.id, newDate, newTime);
+        } else {
+            console.log('Invalid drop zone');
+        }
+        
+        // Clean up
+        document.querySelectorAll('.drop-zone-active').forEach(el => {
+            el.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+        });
+        
+        const appointmentId = draggedAppointment.id;
+        draggedAppointment = null;
+        draggedElement = null;
+        
+        console.log('Drop complete for appointment', appointmentId);
+    }, false);
+}
+
+// SMS Notification Popup
+function showSMSNotificationPopup(appointmentId, newDate, newTime) {
+    // First, move the appointment
+    const newDateTime = new Date(`${newDate}T${newTime}`);
+    const duration = 60; // Default 60 minutes, could be fetched
+    const endDateTime = new Date(newDateTime.getTime() + duration * 60000);
+    
+    fetch(`/api/calendar/appointments/${appointmentId}/move`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            start_time: newDateTime.toISOString(),
+            end_time: endDateTime.toISOString()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show SMS popup with patient info
+            const patientName = data.patient_name || 'Patient';
+            const patientPhone = data.patient_phone || '';
+            const oldDateTime = data.old_start_time ? new Date(data.old_start_time) : null;
+            const newDateTimeFormatted = newDateTime.toLocaleString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit'
+            });
+            
+            const smsModal = document.createElement('div');
+            smsModal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
+            smsModal.innerHTML = `
+                <div class="bg-white rounded-lg shadow-2xl max-w-md w-full p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">
+                            <i class="fas fa-sms text-green-500 mr-2"></i>Notify Patient
+                        </h3>
+                        <button onclick="this.closest('.fixed').remove(); loadWeekGrid();" class="text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="mb-4">
+                        <p class="text-sm text-gray-600 mb-2">
+                            <strong>${patientName}</strong>'s appointment has been moved to:
+                        </p>
+                        <p class="text-lg font-semibold text-brand-bright-teal mb-4">
+                            ${newDateTimeFormatted}
+                        </p>
+                        ${oldDateTime ? `<p class="text-xs text-gray-500 mb-4">
+                            Previous time: ${oldDateTime.toLocaleString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit'
+                            })}
+                        </p>` : ''}
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-mobile-alt mr-2"></i>SMS Message:
+                        </label>
+                        <textarea id="smsMessage" class="w-full p-3 border border-gray-300 rounded-lg text-sm" rows="4">Hi ${patientName}, your appointment has been rescheduled to ${newDateTimeFormatted}. Please confirm if this time works for you. Thank you!</textarea>
+                        <div class="text-xs text-gray-500 mt-1">
+                            <span id="smsCharCount">0</span> characters
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Phone Number:
+                        </label>
+                        <input type="tel" id="smsPhone" value="${patientPhone}" 
+                            class="w-full p-3 border border-gray-300 rounded-lg text-sm" 
+                            placeholder="Enter phone number">
+                    </div>
+                    <div class="flex gap-3">
+                        <button onclick="sendSMSNotification(${appointmentId}, '${newDate}', '${newTime}'); this.closest('.fixed').remove(); loadWeekGrid();" 
+                            class="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-semibold">
+                            <i class="fas fa-paper-plane mr-2"></i>Send SMS
+                        </button>
+                        <button onclick="this.closest('.fixed').remove(); loadWeekGrid();" 
+                            class="px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+                            Skip
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(smsModal);
+            
+            // Character count
+            const smsTextarea = document.getElementById('smsMessage');
+            const charCount = document.getElementById('smsCharCount');
+            smsTextarea.addEventListener('input', function() {
+                charCount.textContent = this.value.length;
+            });
+            charCount.textContent = smsTextarea.value.length;
+        } else {
+            alert('Error moving appointment: ' + (data.error || 'Unknown error'));
+            loadWeekGrid();
+        }
+    })
+    .catch(error => {
+        console.error('Error moving appointment:', error);
+        alert('Error moving appointment: ' + error.message);
+        loadWeekGrid();
+    });
+}
+
+async function sendSMSNotification(appointmentId, newDate, newTime) {
+    const message = document.getElementById('smsMessage').value;
+    const phone = document.getElementById('smsPhone').value;
+    
+    if (!phone) {
+        alert('Please enter a phone number');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/calendar/appointments/' + appointmentId + '/notify', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                message: message,
+                phone: phone,
+                new_date: newDate,
+                new_time: newTime
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showNotification('✅ SMS sent successfully!', 'success');
+        } else {
+            showNotification('❌ Error sending SMS: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Error sending SMS:', error);
+        showNotification('❌ Error sending SMS: ' + error.message, 'error');
+    }
+}
+
+// Load appointment statistics
+async function loadAppointmentStats() {
+    try {
+        const response = await fetch('/api/calendar/events');
+        const data = await response.json();
+        if (data.success) {
+            updateAppointmentStats(data.events.length);
+        }
+    } catch (error) {
+        console.error('Error loading appointment stats:', error);
+    }
+}
+
+function updateAppointmentStats(count) {
+    const statsElement = document.getElementById('totalAppointments');
+    if (statsElement) {
+        statsElement.textContent = count || 0;
+    }
+}
+</script>
+
+{% endblock %}

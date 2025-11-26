@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CaptureCare V7 - System Overview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-darker: #020617;
+            --primary: #06b6d4; /* Cyan 500 */
+            --primary-glow: rgba(6, 182, 212, 0.4);
+            --secondary: #3b82f6; /* Blue 500 */
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.15) 0%, transparent 40%);
+            color: var(--text-main);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Slide Container */
+        .presentation-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 1000px;
+        }
+
+        .slide {
+            position: absolute;
+            width: 80%;
+            max-width: 1200px;
+            height: 80%;
+            max-height: 800px;
+            opacity: 0;
+            visibility: hidden;
+            transform: scale(0.95) translateY(20px);
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .slide.active {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1) translateY(0);
+            z-index: 10;
+        }
+
+        .slide.prev {
+            transform: translateX(-100%) scale(0.8);
+            opacity: 0;
+        }
+
+        .slide.next {
+            transform: translateX(100%) scale(0.8);
+            opacity: 0;
+        }
+
+        /* Typography */
+        h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #fff 0%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-main);
+            border-bottom: 2px solid var(--primary);
+            display: inline-block;
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        p {
+            font-size: 1.2rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        /* Layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            height: 100%;
+            align-items: center;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+        
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        /* Components */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(6, 182, 212, 0.1);
+            border-color: var(--primary);
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            margin-bottom: 0.8rem;
+            padding-left: 1.5rem;
+            position: relative;
+            color: var(--text-muted);
+        }
+
+        .feature-list li::before {
+            content: '▹';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--primary);
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        .icon-box {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            color: white;
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        /* Timeline for Roadmap */
+        .timeline {
+            position: relative;
+            padding-left: 2rem;
+            border-left: 2px solid var(--glass-border);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 2rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -2.6rem;
+            top: 0.5rem;
+            width: 1rem;
+            height: 1rem;
+            background: var(--bg-dark);
+            border: 2px solid var(--primary);
+            border-radius: 50%;
+        }
+
+        /* Controls */
+        .controls {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 1rem;
+            z-index: 100;
+        }
+
+        .btn-nav {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .btn-nav:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: scale(1.1);
+        }
+
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 10px var(--primary);
+        }
+
+        .slide-number {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            color: var(--text-muted);
+            font-family: monospace;
+            font-size: 1rem;
+        }
+
+        /* Specific Slide Styles */
+        .hero-content {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .hero-subtitle {
+            font-size: 1.5rem;
+            color: var(--primary);
+            margin-bottom: 2rem;
+            font-weight: 300;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="presentation-container">
+        
+        <!-- Slide 1: Title -->
+        <div class="slide active" id="slide-1">
+            <div class="hero-content">
+                <div style="display: flex; justify-content: center; margin-bottom: 2rem;">
+                    <div class="icon-box" style="width: 80px; height: 80px; font-size: 2.5rem;">
+                        <i class="fa-solid fa-heart-pulse"></i>
+                    </div>
+                </div>
+                <h1>CaptureCare V7</h1>
+                <p class="hero-subtitle">System Overview & Technical Architecture</p>
+                <p>A comprehensive healthcare management platform powered by AI.</p>
+                
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">AI</div>
+                        <div class="stat-label">Powered Analysis</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">IoT</div>
+                        <div class="stat-label">Device Integration</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">Secure</div>
+                        <div class="stat-label">HIPAA Ready</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">Cloud</div>
+                        <div class="stat-label">Scalable Infra</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 2: What We've Built -->
+        <div class="slide" id="slide-2">
+            <h2>What We've Built</h2>
+            <div class="grid-2">
+                <div>
+                    <p style="font-size: 1.5rem; color: var(--text-main); margin-bottom: 2rem;">
+                        CaptureCare V7 is a <strong>comprehensive healthcare management platform</strong> that bridges the gap between patient data, clinical practice, and artificial intelligence.
+                    </p>
+                    <div class="card">
+                        <h3><i class="fa-solid fa-bullseye"></i> Mission</h3>
+                        <p>To help medical practices manage patients, track health data, schedule appointments, and provide personalized health insights using advanced AI.</p>
+                    </div>
+                </div>
+                <div style="display: grid; gap: 1rem;">
+                    <div class="card">
+                        <div class="icon-box"><i class="fa-solid fa-user-doctor"></i></div>
+                        <h4>For Practitioners</h4>
+                        <p>Streamlined workflow, AI insights, and automated admin tasks.</p>
+                    </div>
+                    <div class="card">
+                        <div class="icon-box"><i class="fa-solid fa-hospital-user"></i></div>
+                        <h4>For Patients</h4>
+                        <p>Personalized care, easy scheduling, and clear health reports.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Core Features (Patient & Health) -->
+        <div class="slide" id="slide-3">
+            <h2>Core Features</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="icon-box"><i class="fa-solid fa-users"></i></div>
+                    <h3>Patient Management</h3>
+                    <ul class="feature-list">
+                        <li>Complete patient registration & profiles</li>
+                        <li>Medical history & clinical notes</li>
+                        <li>Unified communication log (Email, SMS, Voice)</li>
+                        <li>Billing & Invoice tracking</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="icon-box"><i class="fa-solid fa-laptop-medical"></i></div>
+                    <h3>Health Data Integration</h3>
+                    <ul class="feature-list">
+                        <li><strong>Withings</strong> device integration (Scales, BP)</li>
+                        <li>Auto-sync: Weight, HR, BP, Sleep</li>
+                        <li>Interactive charts & trend analysis</li>
+                        <li>Smart target ranges based on age/condition</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Core Features (AI & Scheduling) -->
+        <div class="slide" id="slide-4">
+            <h2>AI & Scheduling</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="icon-box"><i class="fa-solid fa-brain"></i></div>
+                    <h3>AI-Powered Analysis</h3>
+                    <ul class="feature-list">
+                        <li><strong>OpenAI GPT-4</strong> generated health reports</li>
+                        <li>Trend analysis & recommendations</li>
+                        <li>Auto-generated SOAP notes</li>
+                        <li><strong>HeyGen</strong> AI avatar video explanations</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="icon-box"><i class="fa-solid fa-calendar-check"></i></div>
+                    <h3>Smart Scheduling</h3>
+                    <ul class="feature-list">
+                        <li>Interactive calendar (Month/Week/Day)</li>
+                        <li>Multi-practitioner support</li>
+                        <li>Drag-and-drop rescheduling</li>
+                        <li>Auto-SMS notifications on change</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 5: Operations & Ops -->
+        <div class="slide" id="slide-5">
+            <h2>Operations & Integration</h2>
+            <div class="grid-3">
+                <div class="card">
+                    <h3><i class="fa-solid fa-arrows-rotate"></i> Practice Mgmt</h3>
+                    <p><strong>Cliniko</strong> integration for 2-way sync of patient data and treatment notes.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-comments"></i> Communication</h3>
+                    <p><strong>Twilio</strong> powered SMS, Voice, and Video consultations with transcription.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-credit-card"></i> Billing</h3>
+                    <p><strong>Stripe</strong> integration for invoices, payments, and recurring subscriptions.</p>
+                </div>
+            </div>
+            <div class="card" style="margin-top: 2rem;">
+                <h3><i class="fa-solid fa-database"></i> Data & Reporting</h3>
+                <p>Secure storage, Google Sheets export for analytics, and comprehensive system logging.</p>
+            </div>
+        </div>
+
+        <!-- Slide 6: Tech Stack (Backend) -->
+        <div class="slide" id="slide-6">
+            <h2>Technology Stack</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <h3>Backend Core</h3>
+                    <div style="margin-top: 1rem;">
+                        <span class="tag">Python 3.11+</span>
+                        <span class="tag">Flask</span>
+                        <span class="tag">SQLAlchemy</span>
+                        <span class="tag">Gunicorn</span>
+                    </div>
+                    <p style="margin-top: 1rem;">Robust Python backend powering the API and application logic.</p>
+                </div>
+                <div class="card">
+                    <h3>Database</h3>
+                    <div style="margin-top: 1rem;">
+                        <span class="tag">SQLite (Dev)</span>
+                        <span class="tag">PostgreSQL (Prod)</span>
+                        <span class="tag">Flask-Migrate</span>
+                    </div>
+                    <p style="margin-top: 1rem;">Enterprise-grade data storage with strict schema management.</p>
+                </div>
+            </div>
+            <div class="card" style="margin-top: 2rem;">
+                <h3>Frontend</h3>
+                <div style="margin-top: 1rem;">
+                    <span class="tag">HTML5/CSS3</span>
+                    <span class="tag">JavaScript</span>
+                    <span class="tag">Tailwind CSS</span>
+                    <span class="tag">Chart.js</span>
+                    <span class="tag">Font Awesome</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 7: External Services -->
+        <div class="slide" id="slide-7">
+            <h2>External Ecosystem</h2>
+            <div class="grid-4">
+                <div class="card">
+                    <h4><i class="fa-brands fa-google"></i> Google Cloud</h4>
+                    <ul class="feature-list" style="font-size: 0.9rem;">
+                        <li>Cloud Build</li>
+                        <li>Secret Manager</li>
+                        <li>Cloud Storage</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4><i class="fa-solid fa-robot"></i> AI Services</h4>
+                    <ul class="feature-list" style="font-size: 0.9rem;">
+                        <li>OpenAI GPT-4</li>
+                        <li>xAI (Grok)</li>
+                        <li>HeyGen (Video)</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4><i class="fa-solid fa-tower-cell"></i> Comms</h4>
+                    <ul class="feature-list" style="font-size: 0.9rem;">
+                        <li>Twilio (SMS/Voice/Video)</li>
+                        <li>SMTP (Email)</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4><i class="fa-solid fa-plug"></i> Integrations</h4>
+                    <ul class="feature-list" style="font-size: 0.9rem;">
+                        <li>Withings (Health)</li>
+                        <li>Cliniko (PMS)</li>
+                        <li>Stripe (Payments)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 8: Security -->
+        <div class="slide" id="slide-8">
+            <h2>Security Architecture</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <h3><i class="fa-solid fa-shield-halved"></i> Authentication</h3>
+                    <ul class="feature-list">
+                        <li><strong>Bcrypt</strong> password hashing</li>
+                        <li>Secure HttpOnly session cookies</li>
+                        <li>Role-Based Access Control (RBAC)</li>
+                        <li>Auto-logout on inactivity</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-lock"></i> Data Protection</h3>
+                    <ul class="feature-list">
+                        <li><strong>Secret Manager</strong> for API keys</li>
+                        <li>SQL Injection protection (ORM)</li>
+                        <li>OAuth2 for device authorization</li>
+                        <li>Environment isolation (Dev/Prod)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 9: Roadmap Phase 1-2 -->
+        <div class="slide" id="slide-9">
+            <h2>Roadmap: Q1-Q2 2025</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="tag">Phase 1</div>
+                    <h3>Communication & Transcription</h3>
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <h4>Voice Transcription</h4>
+                            <p>Real-time analysis & AI summarization of consults.</p>
+                        </div>
+                        <div class="timeline-item">
+                            <h4>Enhanced Calendar</h4>
+                            <p>Bulk operations, waitlists, and advanced filtering.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="tag">Phase 2</div>
+                    <h3>Patient Mobile App</h3>
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <h4>Native Apps (iOS/Android)</h4>
+                            <p>Booking, health trends, and secure messaging.</p>
+                        </div>
+                        <div class="timeline-item">
+                            <h4>Engagement</h4>
+                            <p>Push notifications, health tips, and surveys.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 10: Roadmap Phase 3-4 -->
+        <div class="slide" id="slide-10">
+            <h2>Roadmap: Q3 2025</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="tag">Phase 3</div>
+                    <h3>Device Integration</h3>
+                    <ul class="feature-list">
+                        <li><strong>WHOOP</strong> (Recovery/Sleep)</li>
+                        <li><strong>Garmin</strong> (Fitness/Stress)</li>
+                        <li><strong>Apple Health & Google Fit</strong></li>
+                        <li>Unified Health Data Platform</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="tag">Phase 4</div>
+                    <h3>Advanced AI</h3>
+                    <ul class="feature-list">
+                        <li>Predictive Health Analytics</li>
+                        <li>Early warning systems</li>
+                        <li>Multi-modal AI analysis</li>
+                        <li>Clinical decision support</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 11: Future Vision -->
+        <div class="slide" id="slide-11">
+            <h2>Future Vision (2026+)</h2>
+            <div class="grid-3">
+                <div class="card">
+                    <h3><i class="fa-solid fa-hospital"></i> EHR Integration</h3>
+                    <p>HL7 FHIR compliance, Epic/Cerner sync, and lab result integration.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-chart-line"></i> Population Health</h3>
+                    <p>Cohort analysis, quality measures, and care gap identification.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-user-nurse"></i> Remote Care</h3>
+                    <p>Chronic disease management, post-surgical monitoring, and wellness coaching.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 12: Summary -->
+        <div class="slide" id="slide-12">
+            <div class="hero-content">
+                <div class="icon-box" style="width: 80px; height: 80px; font-size: 2.5rem; margin: 0 auto 2rem auto;">
+                    <i class="fa-solid fa-check-double"></i>
+                </div>
+                <h2>System Summary</h2>
+                <div class="grid-2" style="text-align: left; margin-top: 3rem;">
+                    <div class="card">
+                        <h3>Comprehensive</h3>
+                        <p>Manages patients, appointments, and health data in one unified platform.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Intelligent</h3>
+                        <p>Leverages GPT-4 and modern AI to provide actionable health insights.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Connected</h3>
+                        <p>Integrates with the best-in-class tools: Withings, Cliniko, Twilio, Stripe.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Secure</h3>
+                        <p>Built with enterprise-grade security, encryption, and compliance in mind.</p>
+                    </div>
+                </div>
+                <p style="margin-top: 3rem; opacity: 0.6;">CaptureCare V7 - Transforming Healthcare Management</p>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="progress-bar" id="progress"></div>
+    <div class="slide-number" id="slide-number">1 / 12</div>
+
+    <div class="controls">
+        <button class="btn-nav" id="prev-btn"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="btn-nav" id="next-btn"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const slides = document.querySelectorAll('.slide');
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            const progressBar = document.getElementById('progress');
+            const slideNumberDisplay = document.getElementById('slide-number');
+            
+            let currentSlide = 0;
+            const totalSlides = slides.length;
+
+            function updateSlide() {
+                slides.forEach((slide, index) => {
+                    slide.classList.remove('active', 'prev', 'next');
+                    if (index === currentSlide) {
+                        slide.classList.add('active');
+                    } else if (index < currentSlide) {
+                        slide.classList.add('prev');
+                    } else {
+                        slide.classList.add('next');
+                    }
+                });
+
+                // Update Progress
+                const progress = ((currentSlide + 1) / totalSlides) * 100;
+                progressBar.style.width = `${progress}%`;
+                
+                // Update Number
+                slideNumberDisplay.textContent = `${currentSlide + 1} / ${totalSlides}`;
+
+                // Update Button States
+                prevBtn.style.opacity = currentSlide === 0 ? '0.5' : '1';
+                prevBtn.style.pointerEvents = currentSlide === 0 ? 'none' : 'auto';
+                
+                nextBtn.style.opacity = currentSlide === totalSlides - 1 ? '0.5' : '1';
+                nextBtn.style.pointerEvents = currentSlide === totalSlides - 1 ? 'none' : 'auto';
+            }
+
+            function nextSlide() {
+                if (currentSlide < totalSlides - 1) {
+                    currentSlide++;
+                    updateSlide();
+                }
+            }
+
+            function prevSlide() {
+                if (currentSlide > 0) {
+                    currentSlide--;
+                    updateSlide();
+                }
+            }
+
+            // Event Listeners
+            nextBtn.addEventListener('click', nextSlide);
+            prevBtn.addEventListener('click', prevSlide);
+
+            // Keyboard Navigation
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowRight' || e.key === 'Space') {
+                    nextSlide();
+                } else if (e.key === 'ArrowLeft') {
+                    prevSlide();
+                }
+            });
+
+            // Initial State
+            updateSlide();
+        });
+    </script>
+</body>
+</html>
