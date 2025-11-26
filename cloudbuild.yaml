@@ -37,4 +37,6 @@ steps:
       - 'USE_SECRET_MANAGER=true,GCP_PROJECT_ID=$PROJECT_ID,USE_CLOUD_STORAGE=true,GCS_BUCKET_NAME=capturecare-v7-storage'
       - '--add-cloudsql-instances'
       - '$PROJECT_ID:australia-southeast2:capturecare-db'
+      - '--set-secrets'
+      - 'DATABASE_URL=capturecare-db-connection:latest'
 timeout: 1200s

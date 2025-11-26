@@ -156,6 +156,7 @@ class NotificationService:
         try:
             from models import db, PatientCorrespondence
             from datetime import datetime
+            import psycopg2
             
             correspondence = PatientCorrespondence(
                 patient_id=patient_id,
@@ -176,7 +177,22 @@ class NotificationService:
             logger.info(f"✅ Logged SMS correspondence for patient {patient_id}")
             
         except Exception as e:
-            logger.error(f"❌ Error logging SMS correspondence: {e}")
+            error_str = str(e)
+            # Check for duplicate key errors (sequence issues)
+            if 'UniqueViolation' in error_str or 'duplicate key' in error_str.lower():
+                logger.warning(f"⚠️  Duplicate key error when logging SMS correspondence. This may indicate a sequence issue. Error: {e}")
+                # Try to fix the sequence by getting max ID and setting it
+                try:
+                    from models import db, PatientCorrespondence
+                    max_id = db.session.query(db.func.max(PatientCorrespondence.id)).scalar() or 0
+                    db.session.execute(db.text(f"SELECT setval('patient_correspondence_id_seq', {max_id + 1}, false)"))
+                    db.session.commit()
+                    logger.info(f"✅ Fixed patient_correspondence sequence to {max_id + 1}")
+                except Exception as seq_error:
+                    logger.error(f"❌ Failed to fix sequence: {seq_error}")
+            else:
+                logger.error(f"❌ Error logging SMS correspondence: {e}")
+            
             # Don't fail the SMS send if logging fails
             try:
                 db.session.rollback()

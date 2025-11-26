@@ -67,3 +67,4 @@ replit.nix
 *.temp
 .tmp/
 client_secrets.json
+cloud-sql-proxy

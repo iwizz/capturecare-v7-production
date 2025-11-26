@@ -18,6 +18,7 @@ class HeyGenService:
     def get_avatars(self):
         """Fetch available avatars from HeyGen"""
         try:
+            logger.info(f"📡 Fetching avatars from {self.base_url}/v2/avatars")
             response = requests.get(
                 f"{self.base_url}/v2/avatars",
                 headers=self.headers,
@@ -26,14 +27,36 @@ class HeyGenService:
             response.raise_for_status()
             
             data = response.json()
-            avatars = data.get('data', {}).get('avatars', [])
+            logger.debug(f"HeyGen API response structure: {list(data.keys())}")
             
-            logger.info(f"Retrieved {len(avatars)} avatars from HeyGen")
+            # Handle different response formats
+            avatars = []
+            if 'data' in data:
+                if isinstance(data['data'], dict) and 'avatars' in data['data']:
+                    avatars = data['data']['avatars']
+                elif isinstance(data['data'], list):
+                    avatars = data['data']
+            elif 'avatars' in data:
+                avatars = data['avatars']
+            
+            logger.info(f"✅ Retrieved {len(avatars)} avatars from HeyGen")
+            if avatars:
+                logger.debug(f"Sample avatar structure: {avatars[0] if avatars else 'None'}")
             return avatars
             
+        except requests.exceptions.HTTPError as e:
+            error_detail = ""
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_json = e.response.json()
+                    error_detail = f" - {error_json}"
+                except:
+                    error_detail = f" - Response: {e.response.text[:500]}"
+            logger.error(f"❌ HeyGen API HTTP error ({e.response.status_code if hasattr(e, 'response') and e.response else 'unknown'}): {e}{error_detail}")
+            raise
         except Exception as e:
-            logger.error(f"Error fetching HeyGen avatars: {e}")
-            return []
+            logger.error(f"❌ Error fetching HeyGen avatars: {e}", exc_info=True)
+            raise
     
     def get_voices(self, language=None):
         """Fetch available voices from HeyGen"""

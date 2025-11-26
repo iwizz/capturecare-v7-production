@@ -16,6 +16,7 @@ from stripe_service import StripeService
 import logging
 import os
 import json
+import requests
 from flask_migrate import Migrate
 
 # Configure logging with Australian Eastern time
@@ -3420,43 +3421,31 @@ def send_patient_sms(patient_id):
         from notification_service import NotificationService
         notif_service = NotificationService()
         
-        result = notif_service.send_sms(phone, message)
+        # Pass patient_id and user_id so NotificationService can log correspondence
+        # Set log_correspondence=True to let NotificationService handle logging
+        result = notif_service.send_sms(
+            phone, 
+            message, 
+            patient_id=patient_id, 
+            user_id=current_user.id if current_user.is_authenticated else None,
+            log_correspondence=True
+        )
         
         if result.get('success'):
-            # Log correspondence
-            correspondence = PatientCorrespondence(
-                patient_id=patient_id,
-                user_id=current_user.id,
-                channel='sms',
-                direction='outbound',
-                body=message,
-                recipient_phone=phone,
-                status=result.get('status', 'sent'),
-                external_id=result.get('sid')
-            )
-            db.session.add(correspondence)
-            db.session.commit()
-            
             return jsonify({'success': True, 'message': 'SMS sent successfully'})
         else:
-            # Log failed attempt
-            correspondence = PatientCorrespondence(
-                patient_id=patient_id,
-                user_id=current_user.id,
-                channel='sms',
-                direction='outbound',
-                body=message,
-                recipient_phone=phone,
-                status='failed',
-                error_message=result.get('error', 'Unknown error')
-            )
-            db.session.add(correspondence)
-            db.session.commit()
-            
             return jsonify({'success': False, 'error': result.get('error', 'Failed to send SMS')}), 400
     except Exception as e:
         logger.error(f"Error sending SMS: {e}")
         db.session.rollback()
+        # Check if it's a duplicate key error and provide a helpful message
+        error_str = str(e)
+        if 'UniqueViolation' in error_str or 'duplicate key' in error_str.lower():
+            logger.warning(f"⚠️  Duplicate key error detected. This may indicate a sequence issue. Error: {e}")
+            return jsonify({
+                'success': False, 
+                'error': 'Database error: Please contact support. The SMS may have been sent but failed to log.'
+            }), 500
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/patients/<int:patient_id>/initiate-call', methods=['POST'])
@@ -4991,27 +4980,47 @@ def api_send_report(patient_id):
 @optional_login_required
 def get_heygen_avatars():
     """Get available HeyGen avatars"""
-    # Get fresh API key from environment
-    api_key = os.getenv('HEYGEN_API_KEY')
+    # Get API key from config (which loads from Secret Manager in Cloud Run)
+    api_key = app.config.get('HEYGEN_API_KEY') or os.getenv('HEYGEN_API_KEY')
     if not api_key:
+        logger.warning("⚠️  HeyGen API key not found in config or environment")
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
+    
+    logger.info(f"🔑 Using HeyGen API key: {api_key[:20]}..." if len(api_key) > 20 else f"🔑 Using HeyGen API key")
     
     try:
         # Create fresh HeyGen instance with current API key
         heygen_service = HeyGenService(api_key)
         avatars = heygen_service.get_avatars()
+        
+        if not avatars:
+            logger.warning("⚠️  No avatars returned from HeyGen API")
+            return jsonify({'success': False, 'error': 'No avatars found. Please check your HeyGen API key.'}), 400
+        
+        logger.info(f"✅ Retrieved {len(avatars)} avatars from HeyGen")
         return jsonify({'success': True, 'avatars': avatars})
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HeyGen API HTTP error: {e}"
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_detail = e.response.json()
+                error_msg += f" - {error_detail}"
+            except:
+                error_msg += f" - Response: {e.response.text[:200]}"
+        logger.error(error_msg)
+        return jsonify({'success': False, 'error': error_msg}), 400
     except Exception as e:
-        logger.error(f"Error fetching avatars: {e}")
+        logger.error(f"Error fetching avatars: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/heygen/voices', methods=['GET'])
 @optional_login_required
 def get_heygen_voices():
     """Get available HeyGen voices"""
-    # Get fresh API key from environment
-    api_key = os.getenv('HEYGEN_API_KEY')
+    # Get API key from config (which loads from Secret Manager in Cloud Run)
+    api_key = app.config.get('HEYGEN_API_KEY') or os.getenv('HEYGEN_API_KEY')
     if not api_key:
+        logger.warning("⚠️  HeyGen API key not found in config or environment")
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
     
     try:
@@ -5019,9 +5028,21 @@ def get_heygen_voices():
         heygen_service = HeyGenService(api_key)
         language = request.args.get('language')
         voices = heygen_service.get_voices(language)
+        
+        logger.info(f"✅ Retrieved {len(voices)} voices from HeyGen" + (f" (filtered for {language})" if language else ""))
         return jsonify({'success': True, 'voices': voices})
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HeyGen API HTTP error: {e}"
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_detail = e.response.json()
+                error_msg += f" - {error_detail}"
+            except:
+                error_msg += f" - Response: {e.response.text[:200]}"
+        logger.error(error_msg)
+        return jsonify({'success': False, 'error': error_msg}), 400
     except Exception as e:
-        logger.error(f"Error fetching voices: {e}")
+        logger.error(f"Error fetching voices: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/heygen/languages', methods=['GET'])
