@@ -34,9 +34,11 @@ def get_postgres_connection():
         raise ValueError("DATABASE_URL environment variable not set")
     return psycopg2.connect(POSTGRES_CONNECTION_STRING)
 
-def migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by=None):
+def migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by=None, skip_columns=None):
     """Migrate a single table from SQLite to PostgreSQL"""
     print(f"\n📦 Migrating table: {table_name}")
+    
+    skip_columns = skip_columns or []
     
     # Get data from SQLite
     cursor_sqlite = sqlite_conn.cursor()
@@ -53,18 +55,55 @@ def migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by=None
     # Get column names
     column_names = [description[0] for description in cursor_sqlite.description]
     
+    # Filter out columns that don't exist in PostgreSQL
+    cursor_postgres = postgres_conn.cursor()
+    cursor_postgres.execute(f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}'
+    """)
+    postgres_columns = {row[0] for row in cursor_postgres.fetchall()}
+    
+    # Filter column names and rows to only include columns that exist in PostgreSQL
+    filtered_column_names = [col for col in column_names if col in postgres_columns and col not in skip_columns]
+    filtered_indices = [i for i, col in enumerate(column_names) if col in postgres_columns and col not in skip_columns]
+    
+    if len(filtered_column_names) != len(column_names):
+        skipped = set(column_names) - set(filtered_column_names)
+        print(f"   ⚠️  Skipping columns not in PostgreSQL: {', '.join(skipped)}")
+    
+    # Filter rows to only include columns that exist
+    filtered_rows = []
+    for row in rows:
+        filtered_rows.append(tuple(row[i] for i in filtered_indices))
+    rows = filtered_rows
+    column_names = filtered_column_names
+    
+    # Get column types from SQLite to identify boolean columns
+    cursor_sqlite.execute(f"PRAGMA table_info({table_name})")
+    column_info = {row[1]: row[2] for row in cursor_sqlite.fetchall()}  # name -> type
+    
     # Prepare data for PostgreSQL
-    # Convert None to NULL, handle datetime objects
+    # Convert None to NULL, handle datetime objects, convert booleans
     processed_rows = []
     for row in rows:
         processed_row = []
-        for i, value in enumerate(row):
+        for i, (col_name, value) in enumerate(zip(column_names, row)):
             if value is None:
                 processed_row.append(None)
             elif isinstance(value, datetime):
                 processed_row.append(value)
             elif isinstance(value, str) and value == '':
                 processed_row.append(None)
+            # Convert SQLite integer booleans (0/1) to PostgreSQL booleans
+            elif col_name in column_info and 'BOOL' in column_info[col_name].upper():
+                processed_row.append(bool(value) if value is not None else None)
+            # Also check for common boolean column names
+            elif any(keyword in col_name.lower() for keyword in ['is_', 'has_', '_active', '_deleted', '_consent', '_set']):
+                if isinstance(value, int):
+                    processed_row.append(bool(value))
+                else:
+                    processed_row.append(value)
             else:
                 processed_row.append(value)
         processed_rows.append(tuple(processed_row))
@@ -72,7 +111,11 @@ def migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by=None
     # Insert into PostgreSQL
     cursor_postgres = postgres_conn.cursor()
     
-    # Build INSERT statement
+    # Build INSERT statement (only for columns that exist)
+    if not column_names:
+        print(f"   ⚠️  No valid columns to migrate")
+        return 0
+    
     placeholders = ','.join(['%s'] * len(column_names))
     columns_str = ','.join([f'"{col}"' for col in column_names])
     
@@ -93,35 +136,42 @@ def migrate_with_foreign_keys(sqlite_conn, postgres_conn):
     """Migrate tables in order to respect foreign key constraints"""
     
     # Define migration order (respecting foreign key dependencies)
+    # Format: (table_name, order_by, skip_columns)
     migration_order = [
         # Base tables first (no foreign keys)
-        ('users', None),
-        ('patients', None),
+        ('users', None, []),
+        ('patients', None, []),
         
         # Tables that depend on users/patients
-        ('devices', 'patient_id'),
-        ('health_data', 'patient_id'),
-        ('target_ranges', 'patient_id'),
-        ('appointments', 'patient_id'),
-        ('patient_notes', 'patient_id'),
-        ('invoices', 'patient_id'),
-        ('invoice_items', 'invoice_id'),
-        ('patient_correspondence', 'patient_id'),
+        ('devices', 'patient_id', []),
+        ('health_data', 'patient_id', []),
+        ('target_ranges', 'patient_id', []),
+        ('appointments', 'patient_id', []),
+        ('patient_notes', 'patient_id', ['subject']),  # Skip subject if it doesn't exist
+        ('invoices', 'patient_id', []),
+        ('invoice_items', 'invoice_id', []),
+        ('patient_correspondence', 'patient_id', []),
         
         # Availability tables
-        ('availability_patterns', 'user_id'),
-        ('availability_exceptions', 'user_id'),
-        ('user_availability', 'user_id'),
+        ('availability_patterns', 'user_id', []),
+        ('availability_exceptions', 'user_id', []),
+        ('user_availability', 'user_id', []),
         
         # Other tables
-        ('notification_templates', None),
-        ('communication_webhook_logs', None),
-        ('webhook_logs', None),
+        ('notification_templates', None, []),
+        ('communication_webhook_logs', None, []),
+        ('webhook_logs', None, []),
     ]
     
     total_migrated = 0
     
-    for table_name, order_by in migration_order:
+    for migration_item in migration_order:
+        if len(migration_item) == 2:
+            table_name, order_by = migration_item
+            skip_columns = []
+        else:
+            table_name, order_by, skip_columns = migration_item
+        
         try:
             # Check if table exists in SQLite
             cursor = sqlite_conn.cursor()
@@ -134,7 +184,7 @@ def migrate_with_foreign_keys(sqlite_conn, postgres_conn):
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns = [row[1] for row in cursor.fetchall()]
             
-            count = migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by)
+            count = migrate_table(sqlite_conn, postgres_conn, table_name, columns, order_by, skip_columns)
             total_migrated += count
         except Exception as e:
             print(f"\n❌ Failed to migrate {table_name}: {e}")
