@@ -100,6 +100,16 @@ class Config:
     
     SQLALCHEMY_DATABASE_URI = db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Connection pool settings for Cloud SQL
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 5,
+        'pool_recycle': 3600,
+        'pool_pre_ping': True,  # Verify connections before using
+        'connect_args': {
+            'connect_timeout': 10,
+            'options': '-c statement_timeout=30000'
+        }
+    }
     
     SESSION_COOKIE_SECURE = False
     SESSION_COOKIE_HTTPONLY = True
