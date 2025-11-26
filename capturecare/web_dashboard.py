@@ -3608,14 +3608,17 @@ def generate_video_token(patient_id):
     try:
         patient = Patient.query.get_or_404(patient_id)
         
-        # Get credentials - Read directly from environment file to ensure latest values
-        # Reload .env file to get latest settings
-        from dotenv import load_dotenv
-        env_file_path = os.path.join(os.path.dirname(__file__), 'capturecare.env')
-        if os.path.exists(env_file_path):
-            load_dotenv(env_file_path, override=True)
+        # Get credentials - Prioritize Secret Manager (Cloud) over .env file (local)
+        # Only reload .env file if NOT using Secret Manager (local development)
+        use_secret_manager = os.getenv('USE_SECRET_MANAGER', 'False').lower() == 'true'
+        if not use_secret_manager:
+            from dotenv import load_dotenv
+            env_file_path = os.path.join(os.path.dirname(__file__), 'capturecare.env')
+            if os.path.exists(env_file_path):
+                load_dotenv(env_file_path, override=True)
         
         # Get credentials from environment (most up-to-date)
+        # Priority: os.getenv (Secret Manager or .env) > app.config
         account_sid = os.getenv('TWILIO_ACCOUNT_SID', '') or app.config.get('TWILIO_ACCOUNT_SID', '')
         auth_token = os.getenv('TWILIO_AUTH_TOKEN', '') or app.config.get('TWILIO_AUTH_TOKEN', '')
         api_key_sid = os.getenv('TWILIO_API_KEY_SID', '') or app.config.get('TWILIO_API_KEY_SID', '')
