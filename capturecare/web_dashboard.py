@@ -3470,6 +3470,28 @@ def generate_invite_password(patient_id):
         logger.error(f"Error generating password: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/patients/<int:patient_id>/generate-invite-password', methods=['POST'])
+@optional_login_required
+def generate_invite_password(patient_id):
+    """Generate a temporary password for iOS app invite preview"""
+    try:
+        import secrets
+        patient = Patient.query.get_or_404(patient_id)
+        
+        if not patient.email:
+            return jsonify({'success': False, 'error': 'Patient must have an email address'}), 400
+        
+        # Generate a temporary password
+        temp_password = secrets.token_urlsafe(12)  # 16 character random password
+        
+        return jsonify({
+            'success': True,
+            'temp_password': temp_password
+        })
+    except Exception as e:
+        logger.error(f"Error generating password: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/patients/<int:patient_id>/send-ios-invite', methods=['POST'])
 @optional_login_required
 def send_ios_app_invite(patient_id):
