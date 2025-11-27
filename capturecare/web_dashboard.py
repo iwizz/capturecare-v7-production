@@ -384,7 +384,10 @@ def settings():
             'SMTP_USERNAME': request.form.get('SMTP_USERNAME', '') or os.getenv('SMTP_USERNAME', ''),
             # CRITICAL: Get password directly from form - preserve ALL characters including spaces
             # Use form value if provided, otherwise keep existing env value
-            'SMTP_PASSWORD': request.form.get('SMTP_PASSWORD') if 'SMTP_PASSWORD' in request.form else os.getenv('SMTP_PASSWORD', ''),
+            # Get raw form data to avoid any processing
+            smtp_password_raw = request.form.get('SMTP_PASSWORD', '') if 'SMTP_PASSWORD' in request.form else os.getenv('SMTP_PASSWORD', '')
+            logger.info(f"🔐 SMTP_PASSWORD received - Length: {len(smtp_password_raw)}, Has spaces: {' ' in smtp_password_raw}, Value: [{smtp_password_raw[:10]}...]")
+            'SMTP_PASSWORD': smtp_password_raw,
             'SMTP_FROM_EMAIL': request.form.get('SMTP_FROM_EMAIL', '') or os.getenv('SMTP_FROM_EMAIL', ''),
             'WITHINGS_CLIENT_ID': request.form.get('WITHINGS_CLIENT_ID', '') or os.getenv('WITHINGS_CLIENT_ID', ''),
             'WITHINGS_CLIENT_SECRET': request.form.get('WITHINGS_CLIENT_SECRET', '') or os.getenv('WITHINGS_CLIENT_SECRET', ''),
