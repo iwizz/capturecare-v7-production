@@ -3492,8 +3492,29 @@ def send_ios_app_invite(patient_id):
         if not temp_password:
             temp_password = secrets.token_urlsafe(12)  # 16 character random password
         
+        # Ensure PatientAuth table exists (create if it doesn't)
+        try:
+            # Try to create all tables (idempotent - won't recreate existing ones)
+            db.create_all()
+        except Exception as e:
+            logger.warning(f"Could not ensure PatientAuth table exists: {e}")
+        
         # Check if PatientAuth already exists
-        patient_auth = PatientAuth.query.filter_by(patient_id=patient_id).first()
+        try:
+            patient_auth = PatientAuth.query.filter_by(patient_id=patient_id).first()
+        except Exception as e:
+            # Table might not exist - create it
+            logger.error(f"PatientAuth table query failed: {e}")
+            logger.info("Attempting to create PatientAuth table...")
+            try:
+                db.create_all()
+                patient_auth = None  # Will create new one below
+            except Exception as create_error:
+                logger.error(f"Failed to create PatientAuth table: {create_error}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Database table not found. Please run database migration to create PatientAuth table.'
+                }), 500
         
         if patient_auth:
             # Update existing auth with new password
@@ -3512,7 +3533,15 @@ def send_ios_app_invite(patient_id):
             patient_auth.set_password(temp_password)
             db.session.add(patient_auth)
         
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"Database commit failed: {e}")
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'error': f'Database error: {str(e)}. Please ensure PatientAuth table exists.'
+            }), 500
         
         # Prepare invite message
         app_store_url = "https://apps.apple.com/app/capturecare"  # Update with actual App Store URL when published

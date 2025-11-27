@@ -5167,8 +5167,27 @@ async function sendIOSInviteFromModal(event) {
         
         // Check if response is ok before parsing
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server error: ${response.status} - ${errorText}`);
+            let errorText = '';
+            try {
+                errorText = await response.text();
+                // Try to parse as JSON if possible
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    throw new Error(errorJson.error || `Server error: ${response.status}`);
+                } catch {
+                    // Not JSON, use text
+                    throw new Error(`Server error (${response.status}): ${errorText.substring(0, 100)}`);
+                }
+            } catch (e) {
+                throw new Error(`Server error: ${response.status} - ${e.message}`);
+            }
+        }
+        
+        // Check content type before parsing JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(`Unexpected response format: ${text.substring(0, 100)}`);
         }
         
         const data = await response.json();
