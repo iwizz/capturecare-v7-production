@@ -3561,47 +3561,88 @@ Download: {app_store_url}
         
         # Send SMS if requested and phone number available
         sms_sent = False
+        sms_error = None
         if 'sms' in send_methods and (patient.mobile or patient.phone):
-            from notification_service import NotificationService
-            notif_service = NotificationService()
-            phone = patient.mobile or patient.phone
-            sms_message = f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login."
-            sms_result = notif_service.send_sms(
-                phone,
-                sms_message,
-                patient_id=patient_id,
-                user_id=current_user.id if current_user.is_authenticated else None,
-                log_correspondence=True
-            )
-            sms_sent = sms_result.get('success', False)
+            try:
+                from notification_service import NotificationService
+                notif_service = NotificationService()
+                phone = patient.mobile or patient.phone
+                sms_message = f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login."
+                sms_result = notif_service.send_sms(
+                    phone,
+                    sms_message,
+                    patient_id=patient_id,
+                    user_id=current_user.id if current_user.is_authenticated else None,
+                    log_correspondence=True
+                )
+                sms_sent = sms_result.get('success', False)
+                if not sms_sent:
+                    sms_error = sms_result.get('error', 'SMS service not configured or failed')
+                    logger.warning(f"SMS invite failed for patient {patient_id}: {sms_error}")
+            except Exception as e:
+                sms_error = str(e)
+                logger.error(f"Could not send SMS invite: {e}", exc_info=True)
         
         # Send email if requested
         email_sent = False
+        email_error = None
         if 'email' in send_methods:
             try:
-                from email_sender import EmailSender
-                email_sender = EmailSender()
-                email_result = email_sender.send_email(
+                # Use NotificationService which handles email sending properly
+                from notification_service import NotificationService
+                notif_service = NotificationService()
+                
+                # Convert plain text message to HTML for email
+                html_message = message.replace('\n', '<br>')
+                
+                email_sent = notif_service.send_email(
                     to_email=patient.email,
                     subject="CaptureCare Patient App Invite",
-                    body=message
+                    body_html=f"<html><body>{html_message}</body></html>",
+                    body_text=message,
+                    patient_id=patient_id,
+                    user_id=current_user.id if current_user.is_authenticated else None,
+                    log_correspondence=True
                 )
-                email_sent = email_result.get('success', False)
+                
+                if not email_sent:
+                    email_error = "Email service not configured or failed"
+                    logger.warning(f"Email invite failed for patient {patient_id}: {email_error}")
             except Exception as e:
-                logger.warning(f"Could not send email invite: {e}")
+                email_error = str(e)
+                logger.error(f"Could not send email invite: {e}", exc_info=True)
         
         if sms_sent or email_sent:
+            # At least one method succeeded - account is created, return success
+            error_details = []
+            if 'email' in send_methods and not email_sent:
+                error_details.append(f"Email failed: {email_error or 'Email service not configured'}")
+            if 'sms' in send_methods and not sms_sent:
+                error_details.append(f"SMS failed: {sms_error or 'SMS service not configured'}")
+            
             return jsonify({
                 'success': True,
                 'message': 'Invite sent successfully',
                 'email_sent': email_sent,
                 'sms_sent': sms_sent,
-                'temp_password': temp_password  # Include for display purposes
+                'temp_password': temp_password,  # Include for display purposes
+                'warnings': error_details if error_details else None
             })
         else:
+            # Both methods failed - provide detailed error
+            error_msg = 'Could not send invite via SMS or email.'
+            if 'email' in send_methods and email_error:
+                error_msg += f' Email: {email_error}.'
+            if 'sms' in send_methods and sms_error:
+                error_msg += f' SMS: {sms_error}.'
+            if not error_msg.endswith('.'):
+                error_msg += ' Please check patient contact information and service configuration.'
+            
             return jsonify({
                 'success': False,
-                'error': 'Could not send invite via SMS or email. Please check patient contact information.'
+                'error': error_msg,
+                'email_error': email_error,
+                'sms_error': sms_error
             }), 400
             
     except Exception as e:
