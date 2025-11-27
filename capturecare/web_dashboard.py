@@ -382,8 +382,9 @@ def settings():
             'SMTP_SERVER': request.form.get('SMTP_SERVER', '') or os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
             'SMTP_PORT': request.form.get('SMTP_PORT', '') or os.getenv('SMTP_PORT', '587'),
             'SMTP_USERNAME': request.form.get('SMTP_USERNAME', '') or os.getenv('SMTP_USERNAME', ''),
-            # Preserve spaces in password - Gmail app passwords can contain spaces
-            'SMTP_PASSWORD': request.form.get('SMTP_PASSWORD', '') or os.getenv('SMTP_PASSWORD', ''),
+            # CRITICAL: Get password directly from form - preserve ALL characters including spaces
+            # Use form value if provided, otherwise keep existing env value
+            'SMTP_PASSWORD': request.form.get('SMTP_PASSWORD') if 'SMTP_PASSWORD' in request.form else os.getenv('SMTP_PASSWORD', ''),
             'SMTP_FROM_EMAIL': request.form.get('SMTP_FROM_EMAIL', '') or os.getenv('SMTP_FROM_EMAIL', ''),
             'WITHINGS_CLIENT_ID': request.form.get('WITHINGS_CLIENT_ID', '') or os.getenv('WITHINGS_CLIENT_ID', ''),
             'WITHINGS_CLIENT_SECRET': request.form.get('WITHINGS_CLIENT_SECRET', '') or os.getenv('WITHINGS_CLIENT_SECRET', ''),
@@ -402,11 +403,12 @@ def settings():
                 f.write("# Generated from Settings page\n\n")
                 for key, value in env_vars.items():
                     if value:  # Only write non-empty values
-                        # Preserve spaces in passwords - quote if contains spaces or special chars
-                        if key == 'SMTP_PASSWORD' and (' ' in value or '"' in value or "'" in value):
-                            # Escape quotes and wrap in double quotes
-                            escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+                        # ALWAYS quote SMTP_PASSWORD to preserve spaces and special characters
+                        if key == 'SMTP_PASSWORD':
+                            # Escape backslashes first, then quotes, then wrap in double quotes
+                            escaped_value = str(value).replace('\\', '\\\\').replace('"', '\\"')
                             f.write(f'{key}="{escaped_value}"\n')
+                            logger.info(f"Saved {key} (quoted to preserve spaces)")
                         else:
                             f.write(f"{key}={value}\n")
                         # Also set in current environment immediately
