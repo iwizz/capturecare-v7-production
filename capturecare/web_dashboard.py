@@ -17,6 +17,7 @@ import logging
 import os
 import json
 import requests
+import smtplib
 from flask_migrate import Migrate
 
 # Configure logging with Australian Eastern time
@@ -378,6 +379,7 @@ def settings():
             'SMTP_SERVER': request.form.get('SMTP_SERVER', '') or os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
             'SMTP_PORT': request.form.get('SMTP_PORT', '') or os.getenv('SMTP_PORT', '587'),
             'SMTP_USERNAME': request.form.get('SMTP_USERNAME', '') or os.getenv('SMTP_USERNAME', ''),
+            # Preserve spaces in password - Gmail app passwords can contain spaces
             'SMTP_PASSWORD': request.form.get('SMTP_PASSWORD', '') or os.getenv('SMTP_PASSWORD', ''),
             'SMTP_FROM_EMAIL': request.form.get('SMTP_FROM_EMAIL', '') or os.getenv('SMTP_FROM_EMAIL', ''),
             'WITHINGS_CLIENT_ID': request.form.get('WITHINGS_CLIENT_ID', '') or os.getenv('WITHINGS_CLIENT_ID', ''),
@@ -397,7 +399,13 @@ def settings():
                 f.write("# Generated from Settings page\n\n")
                 for key, value in env_vars.items():
                     if value:  # Only write non-empty values
-                        f.write(f"{key}={value}\n")
+                        # Preserve spaces in passwords - quote if contains spaces or special chars
+                        if key == 'SMTP_PASSWORD' and (' ' in value or '"' in value or "'" in value):
+                            # Escape quotes and wrap in double quotes
+                            escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+                            f.write(f'{key}="{escaped_value}"\n')
+                        else:
+                            f.write(f"{key}={value}\n")
                         # Also set in current environment immediately
                         os.environ[key] = value
                         # Update app.config immediately so video token generation works
