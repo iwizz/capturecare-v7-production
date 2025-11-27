@@ -106,7 +106,10 @@ class Config:
     
     SQLALCHEMY_DATABASE_URI = db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # Connection pool settings for Cloud SQL
+    
+    # Connection pool settings - only for PostgreSQL, not SQLite
+    if db_url and 'postgresql' in db_url:
+        # Connection pool settings for Cloud SQL
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_size': 5,
         'pool_recycle': 3600,
