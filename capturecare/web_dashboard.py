@@ -420,6 +420,58 @@ def settings():
                         app.config[key] = value
                         logger.info(f"Set {key} in environment and app.config")
             
+            # CRITICAL: In production (Cloud Run), also save to Secret Manager
+            use_secret_manager = os.getenv('USE_SECRET_MANAGER', 'False').lower() == 'true'
+            gcp_project_id = os.getenv('GCP_PROJECT_ID', '')
+            
+            if use_secret_manager and gcp_project_id:
+                try:
+                    from google.cloud import secretmanager
+                    client = secretmanager.SecretManagerServiceClient()
+                    
+                    # Save each secret to Secret Manager
+                    for key, value in env_vars.items():
+                        if value:  # Only save non-empty values
+                            secret_name = key.lower().replace('_', '-')  # Convert SMTP_PASSWORD to smtp-password
+                            secret_id = f"{secret_name}"
+                            parent = f"projects/{gcp_project_id}"
+                            
+                            try:
+                                # Check if secret exists
+                                secret_path = f"{parent}/secrets/{secret_id}"
+                                try:
+                                    client.get_secret(request={"name": secret_path})
+                                    # Secret exists, add new version
+                                    logger.info(f"📝 Updating secret: {secret_id}")
+                                except:
+                                    # Secret doesn't exist, create it
+                                    logger.info(f"📝 Creating new secret: {secret_id}")
+                                    client.create_secret(
+                                        request={
+                                            "parent": parent,
+                                            "secret_id": secret_id,
+                                            "secret": {"replication": {"automatic": {}}},
+                                        }
+                                    )
+                                
+                                # Add new version with the value
+                                # CRITICAL: Preserve spaces - Secret Manager stores as bytes
+                                if key == 'SMTP_PASSWORD':
+                                    logger.info(f"🔐 Saving {key} to Secret Manager - Length: {len(value)}, Spaces: {value.count(' ')}")
+                                
+                                client.add_secret_version(
+                                    request={
+                                        "parent": secret_path,
+                                        "payload": {"data": value.encode('utf-8')}
+                                    }
+                                )
+                                logger.info(f"✅ Saved {key} to Secret Manager as {secret_id}")
+                            except Exception as secret_error:
+                                logger.error(f"❌ Failed to save {key} to Secret Manager: {secret_error}")
+                except Exception as e:
+                    logger.error(f"❌ Error saving to Secret Manager: {e}", exc_info=True)
+                    # Don't fail the whole save if Secret Manager fails
+            
             # Reload notification service credentials immediately
             notification_service.reload_credentials()
             
