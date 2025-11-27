@@ -5084,14 +5084,16 @@ def get_heygen_avatars():
     """Get available HeyGen avatars"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
     from config import Config
-    Config._load_secrets_from_gcp()
-    Config._reload_config_attributes()
+    
+    # Create a new Config instance to reload secrets from Secret Manager
+    config_instance = Config()
     
     # Get API key from config (which loads from Secret Manager in Cloud Run)
     api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
     if not api_key:
         logger.warning("⚠️  HeyGen API key not found in config or environment")
         logger.warning(f"Config.HEYGEN_API_KEY: {bool(Config.HEYGEN_API_KEY)}, os.getenv: {bool(os.getenv('HEYGEN_API_KEY'))}")
+        logger.warning(f"USE_SECRET_MANAGER: {Config.USE_SECRET_MANAGER}, GCP_PROJECT_ID: {Config.GCP_PROJECT_ID}")
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
     
     logger.info(f"🔑 Using HeyGen API key: {api_key[:20]}..." if len(api_key) > 20 else f"🔑 Using HeyGen API key")
@@ -5127,8 +5129,9 @@ def get_heygen_voices():
     """Get available HeyGen voices"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
     from config import Config
-    Config._load_secrets_from_gcp()
-    Config._reload_config_attributes()
+    
+    # Create a new Config instance to reload secrets from Secret Manager
+    config_instance = Config()
     
     # Get API key from config (which loads from Secret Manager in Cloud Run)
     api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
@@ -5162,8 +5165,11 @@ def get_heygen_voices():
 @optional_login_required
 def get_heygen_languages():
     """Get available HeyGen voice languages"""
-    # Get fresh API key from environment
-    api_key = os.getenv('HEYGEN_API_KEY')
+    # Reload config to ensure secrets are loaded (for Cloud Run)
+    from config import Config
+    config_instance = Config()
+    
+    api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
     if not api_key:
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
     
@@ -5180,8 +5186,11 @@ def get_heygen_languages():
 @optional_login_required
 def generate_heygen_video():
     """Generate HeyGen video from health report script"""
-    # Get fresh API key from environment
-    api_key = os.getenv('HEYGEN_API_KEY')
+    # Reload config to ensure secrets are loaded (for Cloud Run)
+    from config import Config
+    config_instance = Config()
+    
+    api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
     if not api_key:
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
     
@@ -5213,8 +5222,11 @@ def generate_heygen_video():
 @optional_login_required
 def get_heygen_status(video_id):
     """Check HeyGen video generation status"""
-    # Get fresh API key from environment
-    api_key = os.getenv('HEYGEN_API_KEY')
+    # Reload config to ensure secrets are loaded (for Cloud Run)
+    from config import Config
+    config_instance = Config()
+    
+    api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
     if not api_key:
         return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
     
