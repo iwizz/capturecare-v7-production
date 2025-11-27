@@ -542,3 +542,47 @@ class NotificationTemplate(db.Model):
     
     def __repr__(self):
         return f'<NotificationTemplate {self.template_type}/{self.template_name}>'
+
+class PatientAuth(db.Model):
+    """Patient authentication credentials for mobile app access"""
+    __tablename__ = 'patient_auth'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False, unique=True)
+    
+    # Authentication provider: 'apple', 'google', or 'email'
+    auth_provider = db.Column(db.String(20), nullable=False)
+    
+    # Provider-specific user ID (Apple user ID, Google sub, etc.)
+    provider_user_id = db.Column(db.String(200), nullable=True)
+    
+    # Email (for email auth or as identifier)
+    email = db.Column(db.String(120), nullable=True)
+    
+    # Password hash (only for email auth)
+    password_hash = db.Column(db.String(200), nullable=True)
+    
+    # JWT token management
+    refresh_token = db.Column(db.String(500), nullable=True)
+    token_expires_at = db.Column(db.DateTime, nullable=True)
+    
+    # Account status
+    is_active = db.Column(db.Boolean, default=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to Patient
+    patient = db.relationship('Patient', backref='auth', uselist=False)
+    
+    def __repr__(self):
+        return f'<PatientAuth {self.auth_provider} for Patient {self.patient_id}>'
+    
+    def set_password(self, password):
+        """Hash and set the password"""
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Check if provided password matches hash"""
+        return check_password_hash(self.password_hash, password)
