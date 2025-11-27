@@ -3496,24 +3496,37 @@ def send_ios_app_invite(patient_id):
         try:
             # Try to create all tables (idempotent - won't recreate existing ones)
             db.create_all()
+            logger.info("✅ Database tables verified/created")
         except Exception as e:
             logger.warning(f"Could not ensure PatientAuth table exists: {e}")
         
         # Check if PatientAuth already exists
+        patient_auth = None
         try:
             patient_auth = PatientAuth.query.filter_by(patient_id=patient_id).first()
         except Exception as e:
-            # Table might not exist - create it
-            logger.error(f"PatientAuth table query failed: {e}")
-            logger.info("Attempting to create PatientAuth table...")
-            try:
-                db.create_all()
-                patient_auth = None  # Will create new one below
-            except Exception as create_error:
-                logger.error(f"Failed to create PatientAuth table: {create_error}")
+            # Table might not exist - try to create it
+            error_str = str(e).lower()
+            if 'does not exist' in error_str or 'no such table' in error_str or 'relation' in error_str:
+                logger.error(f"PatientAuth table does not exist: {e}")
+                logger.info("Attempting to create PatientAuth table...")
+                try:
+                    # Try creating just the PatientAuth table
+                    PatientAuth.__table__.create(db.engine, checkfirst=True)
+                    logger.info("✅ PatientAuth table created")
+                    patient_auth = None  # Will create new one below
+                except Exception as create_error:
+                    logger.error(f"Failed to create PatientAuth table: {create_error}")
+                    return jsonify({
+                        'success': False,
+                        'error': 'Database table "patient_auth" does not exist. Please run this SQL on your database:\n\nCREATE TABLE patient_auth (id SERIAL PRIMARY KEY, patient_id INTEGER NOT NULL UNIQUE REFERENCES patients(id), auth_provider VARCHAR(20) NOT NULL, provider_user_id VARCHAR(200), email VARCHAR(120), password_hash VARCHAR(200), refresh_token VARCHAR(500), token_expires_at TIMESTAMP, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);'
+                    }), 500
+            else:
+                # Some other database error
+                logger.error(f"Database error querying PatientAuth: {e}")
                 return jsonify({
                     'success': False,
-                    'error': 'Database table not found. Please run database migration to create PatientAuth table.'
+                    'error': f'Database error: {str(e)}'
                 }), 500
         
         if patient_auth:
@@ -3535,13 +3548,21 @@ def send_ios_app_invite(patient_id):
         
         try:
             db.session.commit()
+            logger.info(f"✅ PatientAuth record {'updated' if patient_auth else 'created'} for patient {patient_id}")
         except Exception as e:
-            logger.error(f"Database commit failed: {e}")
+            logger.error(f"Database commit failed: {e}", exc_info=True)
             db.session.rollback()
-            return jsonify({
-                'success': False,
-                'error': f'Database error: {str(e)}. Please ensure PatientAuth table exists.'
-            }), 500
+            error_str = str(e).lower()
+            if 'does not exist' in error_str or 'no such table' in error_str or 'relation' in error_str:
+                return jsonify({
+                    'success': False,
+                    'error': 'Database table "patient_auth" does not exist. Please create it using the SQL in DATABASE_MIGRATION_PATIENT_AUTH.md'
+                }), 500
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Database error: {str(e)}'
+                }), 500
         
         # Prepare invite message
         app_store_url = "https://apps.apple.com/app/capturecare"  # Update with actual App Store URL when published
