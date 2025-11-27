@@ -6062,6 +6062,63 @@ def health_check():
             'timestamp': datetime.utcnow().isoformat()
         }), 503
 
+@app.route('/admin/create-patient-auth-table', methods=['POST'])
+def create_patient_auth_table():
+    """Temporary admin endpoint to create PatientAuth table"""
+    try:
+        from sqlalchemy import inspect, text
+        
+        # Check if table exists
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        
+        if 'patient_auth' in tables:
+            return jsonify({
+                'success': True,
+                'message': 'PatientAuth table already exists',
+                'tables': tables
+            }), 200
+        
+        # Create the table
+        logger.info("Creating PatientAuth table...")
+        PatientAuth.__table__.create(db.engine, checkfirst=True)
+        
+        # Create indexes
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_patient_auth_patient_id 
+                ON patient_auth(patient_id);
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_patient_auth_email 
+                ON patient_auth(email);
+            """))
+            conn.commit()
+        
+        # Verify
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        
+        if 'patient_auth' in tables:
+            logger.info("✅ PatientAuth table created successfully!")
+            return jsonify({
+                'success': True,
+                'message': 'PatientAuth table created successfully',
+                'tables': tables
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Table creation may have failed'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error creating PatientAuth table: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # Google Login Routes
 @app.route('/google/login')
 def google_login():
