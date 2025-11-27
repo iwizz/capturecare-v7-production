@@ -83,7 +83,9 @@ class Config:
         Config.SMTP_USERNAME = self.SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
         # Fix: Clean password - replace non-breaking spaces with regular spaces
         _smtp_password_raw = os.getenv('SMTP_PASSWORD', '')
-        Config.SMTP_PASSWORD = self.SMTP_PASSWORD = _smtp_password_raw.replace('\xa0', ' ').replace('\u00a0', ' ').strip() if _smtp_password_raw else ''
+        # CRITICAL: Do NOT strip() - preserve spaces in Gmail app passwords
+        # Only replace non-breaking spaces with regular spaces, but keep all other spaces
+        Config.SMTP_PASSWORD = self.SMTP_PASSWORD = _smtp_password_raw.replace('\xa0', ' ').replace('\u00a0', ' ') if _smtp_password_raw else ''
         Config.SMTP_FROM_EMAIL = self.SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
     
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -154,7 +156,8 @@ class Config:
     SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
     # Fix: Clean password - replace non-breaking spaces with regular spaces
     _smtp_password_raw = os.getenv('SMTP_PASSWORD', '')
-    SMTP_PASSWORD = _smtp_password_raw.replace('\xa0', ' ').replace('\u00a0', ' ').strip() if _smtp_password_raw else ''
+    # CRITICAL: Do NOT strip() - preserve spaces in Gmail app passwords
+    SMTP_PASSWORD = _smtp_password_raw.replace('\xa0', ' ').replace('\u00a0', ' ') if _smtp_password_raw else ''
     SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
     
     DEFAULT_TIMEZONE = timezone(timedelta(hours=10))

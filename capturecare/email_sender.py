@@ -15,9 +15,10 @@ class EmailSender:
         self.smtp_port = smtp_port
         self.username = username
         # Store password, handling spaces and special characters (fix non-breaking spaces)
+        # CRITICAL: Do NOT strip() - preserve spaces in Gmail app passwords
         if password:
-            # Replace non-breaking spaces (\xa0) with regular spaces, then strip
-            self.password = password.replace('\xa0', ' ').replace('\u00a0', ' ').strip()
+            # Replace non-breaking spaces (\xa0) with regular spaces, but keep all other spaces
+            self.password = password.replace('\xa0', ' ').replace('\u00a0', ' ')
         else:
             self.password = ''
         self.from_email = from_email
@@ -84,10 +85,9 @@ class EmailSender:
                 server.starttls()
                 logger.info(f"🔐 TLS started")
                 
-                # Fix: Handle passwords with spaces and special characters (Gmail app passwords)
+                # CRITICAL: Do NOT strip() - preserve spaces in Gmail app passwords
+                # Only replace non-breaking spaces with regular spaces
                 smtp_password = self.password.replace('\xa0', ' ') if self.password else ''
-                # Remove any leading/trailing whitespace
-                smtp_password = smtp_password.strip()
                 
                 logger.info(f"🔑 Logging in as {self.username}...")
                 server.login(self.username, smtp_password)
@@ -132,10 +132,9 @@ class EmailSender:
                 server.starttls()
                 logger.info(f"🔐 TLS started")
                 
-                # Fix: Handle passwords with spaces and special characters (Gmail app passwords)
+                # CRITICAL: Do NOT strip() - preserve spaces in Gmail app passwords
+                # Only replace non-breaking spaces with regular spaces
                 smtp_password = self.password.replace('\xa0', ' ') if self.password else ''
-                # Remove any leading/trailing whitespace
-                smtp_password = smtp_password.strip()
                 
                 logger.info(f"🔑 Logging in as {self.username}...")
                 server.login(self.username, smtp_password)
