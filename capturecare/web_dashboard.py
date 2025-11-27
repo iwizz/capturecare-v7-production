@@ -411,7 +411,7 @@ def settings():
                             # Escape backslashes first, then quotes, then wrap in double quotes
                             escaped_value = str(value).replace('\\', '\\\\').replace('"', '\\"')
                             f.write(f'{key}="{escaped_value}"\n')
-                            logger.info(f"Saved {key} (quoted to preserve spaces)")
+                            logger.info(f"✅ Saved {key} - Length: {len(value)}, Spaces: {value.count(' ')}, Quoted: True")
                         else:
                             f.write(f"{key}={value}\n")
                         # Also set in current environment immediately
@@ -2848,13 +2848,14 @@ def get_webhook_logs():
                 'patient_name': log.patient_name,
                 'email': log.email,
                 'error': log.error_message,
-                'timestamp': log.created_at.isoformat()
+                'timestamp': log.created_at.isoformat() if log.created_at else None
             })
         
         return jsonify({'logs': logs_data})
     except Exception as e:
-        logger.error(f"Error fetching webhook logs: {e}")
-        return jsonify({'logs': []})
+        logger.error(f"Error fetching webhook logs: {e}", exc_info=True)
+        # Return empty logs array instead of error to prevent frontend issues
+        return jsonify({'logs': [], 'error': str(e)})
 
 @app.route('/patients/<int:patient_id>/appointments', methods=['GET'])
 @optional_login_required
