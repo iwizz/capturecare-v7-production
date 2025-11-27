@@ -53,7 +53,11 @@ class Config:
                 try:
                     name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
                     response = client.access_secret_version(request={"name": name})
-                    secret_value = response.payload.data.decode('UTF-8').strip()
+                    # CRITICAL: Do NOT strip() - preserve spaces in passwords (especially SMTP_PASSWORD)
+                    secret_value = response.payload.data.decode('UTF-8')
+                    # Only strip if it's not a password field
+                    if 'PASSWORD' not in env_var:
+                        secret_value = secret_value.strip()
                     os.environ[env_var] = secret_value
                     if 'TWILIO' in env_var or 'API_KEY' in env_var:
                         logger.info(f"✅ Loaded secret {secret_name}: {secret_value[:20]}..." if len(secret_value) > 20 else f"✅ Loaded secret {secret_name}")
