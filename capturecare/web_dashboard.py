@@ -3448,6 +3448,28 @@ def send_patient_sms(patient_id):
             }), 500
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/patients/<int:patient_id>/generate-invite-password', methods=['POST'])
+@optional_login_required
+def generate_invite_password(patient_id):
+    """Generate a temporary password for iOS app invite preview"""
+    try:
+        import secrets
+        patient = Patient.query.get_or_404(patient_id)
+        
+        if not patient.email:
+            return jsonify({'success': False, 'error': 'Patient must have an email address'}), 400
+        
+        # Generate a temporary password
+        temp_password = secrets.token_urlsafe(12)  # 16 character random password
+        
+        return jsonify({
+            'success': True,
+            'temp_password': temp_password
+        })
+    except Exception as e:
+        logger.error(f"Error generating password: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/patients/<int:patient_id>/send-ios-invite', methods=['POST'])
 @optional_login_required
 def send_ios_app_invite(patient_id):
@@ -3461,8 +3483,14 @@ def send_ios_app_invite(patient_id):
         if not patient.email:
             return jsonify({'success': False, 'error': 'Patient must have an email address to receive invite'}), 400
         
-        # Generate a temporary password
-        temp_password = secrets.token_urlsafe(12)  # 16 character random password
+        # Get request data
+        data = request.json or {}
+        send_methods = data.get('send_methods', ['email', 'sms'])  # Default to both
+        temp_password = data.get('temp_password')
+        
+        # Generate password if not provided
+        if not temp_password:
+            temp_password = secrets.token_urlsafe(12)  # 16 character random password
         
         # Check if PatientAuth already exists
         patient_auth = PatientAuth.query.filter_by(patient_id=patient_id).first()
@@ -3502,34 +3530,36 @@ Download: {app_store_url}
 
 - CaptureCare Team"""
         
-        # Send SMS if phone number available
+        # Send SMS if requested and phone number available
         sms_sent = False
-        if patient.mobile or patient.phone:
+        if 'sms' in send_methods and (patient.mobile or patient.phone):
             from notification_service import NotificationService
             notif_service = NotificationService()
             phone = patient.mobile or patient.phone
+            sms_message = f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login."
             sms_result = notif_service.send_sms(
                 phone,
-                f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login.",
+                sms_message,
                 patient_id=patient_id,
                 user_id=current_user.id if current_user.is_authenticated else None,
                 log_correspondence=True
             )
             sms_sent = sms_result.get('success', False)
         
-        # Send email
+        # Send email if requested
         email_sent = False
-        try:
-            from email_sender import EmailSender
-            email_sender = EmailSender()
-            email_result = email_sender.send_email(
-                to_email=patient.email,
-                subject="CaptureCare Patient App Invite",
-                body=message
-            )
-            email_sent = email_result.get('success', False)
-        except Exception as e:
-            logger.warning(f"Could not send email invite: {e}")
+        if 'email' in send_methods:
+            try:
+                from email_sender import EmailSender
+                email_sender = EmailSender()
+                email_result = email_sender.send_email(
+                    to_email=patient.email,
+                    subject="CaptureCare Patient App Invite",
+                    body=message
+                )
+                email_sent = email_result.get('success', False)
+            except Exception as e:
+                logger.warning(f"Could not send email invite: {e}")
         
         if sms_sent or email_sent:
             return jsonify({
