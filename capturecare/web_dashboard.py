@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 from flask_cors import CORS
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
-from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException
+from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth
 from config import Config
 from withings_auth import WithingsAuthManager
 from sync_health_data import HealthDataSynchronizer
@@ -3446,6 +3446,108 @@ def send_patient_sms(patient_id):
                 'success': False, 
                 'error': 'Database error: Please contact support. The SMS may have been sent but failed to log.'
             }), 500
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/patients/<int:patient_id>/send-ios-invite', methods=['POST'])
+@optional_login_required
+def send_ios_app_invite(patient_id):
+    """Send iOS app invite to patient - creates account and sends SMS/email"""
+    try:
+        from werkzeug.security import generate_password_hash
+        import secrets
+        
+        patient = Patient.query.get_or_404(patient_id)
+        
+        if not patient.email:
+            return jsonify({'success': False, 'error': 'Patient must have an email address to receive invite'}), 400
+        
+        # Generate a temporary password
+        temp_password = secrets.token_urlsafe(12)  # 16 character random password
+        
+        # Check if PatientAuth already exists
+        patient_auth = PatientAuth.query.filter_by(patient_id=patient_id).first()
+        
+        if patient_auth:
+            # Update existing auth with new password
+            patient_auth.set_password(temp_password)
+            patient_auth.is_active = True
+            patient_auth.auth_provider = 'email'
+            patient_auth.email = patient.email
+        else:
+            # Create new PatientAuth
+            patient_auth = PatientAuth(
+                patient_id=patient_id,
+                auth_provider='email',
+                email=patient.email,
+                is_active=True
+            )
+            patient_auth.set_password(temp_password)
+            db.session.add(patient_auth)
+        
+        db.session.commit()
+        
+        # Prepare invite message
+        app_store_url = "https://apps.apple.com/app/capturecare"  # Update with actual App Store URL when published
+        message = f"""Hi {patient.first_name}, 
+
+You've been invited to use the CaptureCare patient app! 
+
+Download the app and sign in with:
+Email: {patient.email}
+Password: {temp_password}
+
+You can change your password after signing in.
+
+Download: {app_store_url}
+
+- CaptureCare Team"""
+        
+        # Send SMS if phone number available
+        sms_sent = False
+        if patient.mobile or patient.phone:
+            from notification_service import NotificationService
+            notif_service = NotificationService()
+            phone = patient.mobile or patient.phone
+            sms_result = notif_service.send_sms(
+                phone,
+                f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login.",
+                patient_id=patient_id,
+                user_id=current_user.id if current_user.is_authenticated else None,
+                log_correspondence=True
+            )
+            sms_sent = sms_result.get('success', False)
+        
+        # Send email
+        email_sent = False
+        try:
+            from email_sender import EmailSender
+            email_sender = EmailSender()
+            email_result = email_sender.send_email(
+                to_email=patient.email,
+                subject="CaptureCare Patient App Invite",
+                body=message
+            )
+            email_sent = email_result.get('success', False)
+        except Exception as e:
+            logger.warning(f"Could not send email invite: {e}")
+        
+        if sms_sent or email_sent:
+            return jsonify({
+                'success': True,
+                'message': 'Invite sent successfully',
+                'email_sent': email_sent,
+                'sms_sent': sms_sent,
+                'temp_password': temp_password  # Include for display purposes
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Could not send invite via SMS or email. Please check patient contact information.'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error sending iOS app invite: {e}")
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/patients/<int:patient_id>/initiate-call', methods=['POST'])

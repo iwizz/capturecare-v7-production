@@ -56,6 +56,9 @@
             {% endif %}
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
+            <button type="button" onclick="sendIOSAppInvite()" class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition font-semibold whitespace-nowrap">
+                <i class="fas fa-mobile-alt mr-1"></i>Send App Invite
+            </button>
             {% if not patient.withings_user_id %}
                 <a href="{{ url_for('authorize_withings', patient_id=patient.id) }}" 
                    class="px-3 py-1.5 text-sm bg-brand-bright-teal text-white rounded hover:bg-brand-teal transition whitespace-nowrap">
@@ -4946,6 +4949,45 @@ function updateCharCount() {
     const messageField = document.getElementById('smsMessage');
     const charCount = document.getElementById('charCount');
     charCount.textContent = messageField.value.length;
+}
+
+async function sendIOSAppInvite() {
+    if (!confirm('Send iOS app invite to {{ patient.first_name }}? This will create an account and send login credentials via SMS/email.')) {
+        return;
+    }
+    
+    // Disable button and show loading
+    const btn = event?.target || document.querySelector('button[onclick="sendIOSAppInvite()"]');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Sending...';
+    
+    try {
+        const response = await fetch(`/api/patients/{{ patient.id }}/send-ios-invite`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            let message = '✅ iOS app invite sent successfully!\n\n';
+            if (data.email_sent) message += '✓ Email sent\n';
+            if (data.sms_sent) message += '✓ SMS sent\n';
+            message += `\nTemporary password: ${data.temp_password}\n\n`;
+            message += 'Patient can sign in with their email and this password, then change it in the app.';
+            alert(message);
+            loadCorrespondence(); // Reload correspondence list
+        } else {
+            alert('❌ Error sending invite: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error sending iOS app invite:', error);
+        alert('❌ Error sending invite: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 async function sendSms(event) {
