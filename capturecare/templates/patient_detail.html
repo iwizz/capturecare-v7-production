@@ -5165,6 +5165,12 @@ async function sendIOSInviteFromModal(event) {
             })
         });
         
+        // Check if response is ok before parsing
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
+        }
+        
         const data = await response.json();
         
         if (data.success) {
@@ -5178,11 +5184,12 @@ async function sendIOSInviteFromModal(event) {
             loadCorrespondence(); // Reload correspondence list
         } else {
             alert('❌ Error sending invite: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         }
     } catch (error) {
         console.error('Error sending iOS app invite:', error);
-        alert('❌ Error sending invite: ' + error.message);
-    } finally {
+        alert('❌ Error sending invite: ' + (error.message || 'Unknown error'));
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
@@ -5622,26 +5629,45 @@ async function loadAvatarsAndVoices() {
     try {
         // Load avatars
         const avatarResponse = await fetch('/api/heygen/avatars');
+        
+        if (!avatarResponse.ok) {
+            const errorText = await avatarResponse.text();
+            console.error('HeyGen avatars API error:', avatarResponse.status, errorText);
+            // Don't show alert if it's just a configuration issue - user might not want to use HeyGen
+            return;
+        }
+        
         const avatarData = await avatarResponse.json();
         
         if (avatarData.success && avatarData.avatars) {
             availableAvatars = avatarData.avatars;
             populateAvatars();
+        } else if (avatarData.error) {
+            console.warn('HeyGen avatars error:', avatarData.error);
+            // Don't show alert - just log it
         }
         
         // Load voices
         const voiceResponse = await fetch('/api/heygen/voices');
+        
+        if (!voiceResponse.ok) {
+            console.error('HeyGen voices API error:', voiceResponse.status);
+            return;
+        }
+        
         const voiceData = await voiceResponse.json();
         
         if (voiceData.success && voiceData.voices) {
             availableVoices = voiceData.voices;
             filterVoices();
+        } else if (voiceData.error) {
+            console.warn('HeyGen voices error:', voiceData.error);
         }
         
         console.log(`Loaded ${availableAvatars.length} avatars and ${availableVoices.length} voices`);
     } catch (error) {
         console.error('Error loading HeyGen options:', error);
-        alert('Error loading avatar options. Make sure HeyGen API key is configured in Settings.');
+        // Don't show alert - HeyGen might not be configured, which is okay
     }
 }
 
@@ -6100,6 +6126,13 @@ async function loadVideoScriptAvatars() {
     
     try {
         const response = await fetch('/api/heygen/avatars');
+        
+        if (!response.ok) {
+            console.warn('HeyGen API not available:', response.status);
+            avatarSelect.innerHTML = '<option value="">HeyGen not configured</option>';
+            return;
+        }
+        
         const data = await response.json();
         
         if (data.success && data.avatars) {
@@ -6116,13 +6149,12 @@ async function loadVideoScriptAvatars() {
             
             console.log(`✅ Loaded ${data.avatars.length} avatars from your HeyGen account`);
         } else {
-            avatarSelect.innerHTML = '<option value="">❌ Failed to load avatars</option>';
-            console.error('Failed to load avatars:', data.error);
+            avatarSelect.innerHTML = '<option value="">HeyGen not configured</option>';
+            console.warn('HeyGen not configured:', data.error);
         }
     } catch (error) {
-        console.error('Error loading avatars:', error);
-        avatarSelect.innerHTML = '<option value="">❌ Error loading avatars</option>';
-        alert('Failed to load avatars. Please check your HeyGen API key in Settings.');
+        console.warn('HeyGen not available:', error);
+        avatarSelect.innerHTML = '<option value="">HeyGen not configured</option>';
     }
 }
 
