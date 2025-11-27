@@ -109,16 +109,21 @@ class Config:
     
     # Connection pool settings - only for PostgreSQL, not SQLite
     if db_url and 'postgresql' in db_url:
-        # Connection pool settings for Cloud SQL
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 5,
-        'pool_recycle': 3600,
-        'pool_pre_ping': True,  # Verify connections before using
-        'connect_args': {
-            'connect_timeout': 10,
-            'options': '-c statement_timeout=30000'
+        # Connection pool settings for Cloud SQL (PostgreSQL)
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'pool_size': 5,
+            'pool_recycle': 3600,
+            'pool_pre_ping': True,  # Verify connections before using
+            'connect_args': {
+                'connect_timeout': 10,
+                'options': '-c statement_timeout=30000'
+            }
         }
-    }
+    else:
+        # SQLite doesn't support connect_timeout or pool settings
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'pool_pre_ping': True
+        }
     
     SESSION_COOKIE_SECURE = False
     SESSION_COOKIE_HTTPONLY = True
