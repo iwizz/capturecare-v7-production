@@ -370,6 +370,10 @@ def settings():
         logger.info("Settings save attempt")
         
         # Build the new env file content - preserve existing values if form field is empty
+        # CRITICAL: Get password BEFORE building dict to preserve spaces
+        smtp_password_raw = request.form.get('SMTP_PASSWORD', '') if 'SMTP_PASSWORD' in request.form else os.getenv('SMTP_PASSWORD', '')
+        logger.info(f"🔐 SMTP_PASSWORD received - Length: {len(smtp_password_raw)}, Has spaces: {' ' in smtp_password_raw}, Value preview: [{smtp_password_raw[:10]}...]")
+        
         env_vars = {
             'OPENAI_API_KEY': request.form.get('OPENAI_API_KEY', '') or os.getenv('OPENAI_API_KEY', ''),
             'XAI_API_KEY': request.form.get('XAI_API_KEY', '') or os.getenv('XAI_API_KEY', ''),
@@ -382,11 +386,7 @@ def settings():
             'SMTP_SERVER': request.form.get('SMTP_SERVER', '') or os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
             'SMTP_PORT': request.form.get('SMTP_PORT', '') or os.getenv('SMTP_PORT', '587'),
             'SMTP_USERNAME': request.form.get('SMTP_USERNAME', '') or os.getenv('SMTP_USERNAME', ''),
-            # CRITICAL: Get password directly from form - preserve ALL characters including spaces
-            # Use form value if provided, otherwise keep existing env value
-            # Get raw form data to avoid any processing
-            smtp_password_raw = request.form.get('SMTP_PASSWORD', '') if 'SMTP_PASSWORD' in request.form else os.getenv('SMTP_PASSWORD', '')
-            logger.info(f"🔐 SMTP_PASSWORD received - Length: {len(smtp_password_raw)}, Has spaces: {' ' in smtp_password_raw}, Value: [{smtp_password_raw[:10]}...]")
+            # CRITICAL: Use raw password value to preserve ALL characters including spaces
             'SMTP_PASSWORD': smtp_password_raw,
             'SMTP_FROM_EMAIL': request.form.get('SMTP_FROM_EMAIL', '') or os.getenv('SMTP_FROM_EMAIL', ''),
             'WITHINGS_CLIENT_ID': request.form.get('WITHINGS_CLIENT_ID', '') or os.getenv('WITHINGS_CLIENT_ID', ''),
