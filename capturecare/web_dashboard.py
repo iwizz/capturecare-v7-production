@@ -2855,7 +2855,8 @@ def get_webhook_logs():
     except Exception as e:
         logger.error(f"Error fetching webhook logs: {e}", exc_info=True)
         # Return empty logs array instead of error to prevent frontend issues
-        return jsonify({'logs': [], 'error': str(e)})
+        # This prevents the frontend from breaking when the table doesn't exist or DB is unavailable
+        return jsonify({'logs': [], 'error': str(e)}), 200  # Return 200 with empty logs
 
 @app.route('/patients/<int:patient_id>/appointments', methods=['GET'])
 @optional_login_required
