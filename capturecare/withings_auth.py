@@ -37,7 +37,21 @@ class WithingsAuthManager:
                 self.use_cloud_storage = False
         else:
             self.use_cloud_storage = False
-            os.makedirs(self.tokens_dir, exist_ok=True)
+            # Always use /tmp for Cloud Run compatibility (read-only filesystem except /tmp)
+            # Check if we're in a Cloud Run environment or local
+            if os.path.exists('/tmp'):
+                self.tokens_dir = '/tmp/capturecare_tokens'
+            else:
+                # Fallback for local development
+                self.tokens_dir = 'capturecare/tokens'
+            try:
+                os.makedirs(self.tokens_dir, exist_ok=True)
+            except Exception as e:
+                logger.warning(f"Could not create tokens directory: {e}")
+                # Last resort: use /tmp if available
+                if os.path.exists('/tmp'):
+                    self.tokens_dir = '/tmp/capturecare_tokens'
+                    os.makedirs(self.tokens_dir, exist_ok=True)
         
         self.auth_url = "https://account.withings.com/oauth2_user/authorize2"
         self.token_url = "https://wbsapi.withings.net/v2/oauth2"
@@ -93,23 +107,46 @@ class WithingsAuthManager:
     
     def _store_auth_state(self, state, patient_id):
         """Store auth state for verification"""
-        state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+        states = {}
         
-        try:
-            with open(state_file, 'r') as f:
-                content = f.read().strip()
-                states = json.loads(content) if content else {}
-        except (FileNotFoundError, json.JSONDecodeError):
-            states = {}
+        # Load existing states
+        if self.use_cloud_storage:
+            try:
+                blob = self.bucket.blob(f"{self.gcs_tokens_prefix}auth_states.json")
+                if blob.exists():
+                    content = blob.download_as_text()
+                    states = json.loads(content) if content.strip() else {}
+            except Exception as e:
+                logger.warning(f"Could not load auth states from Cloud Storage: {e}")
+                states = {}
+        else:
+            state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+            try:
+                with open(state_file, 'r') as f:
+                    content = f.read().strip()
+                    states = json.loads(content) if content else {}
+            except (FileNotFoundError, json.JSONDecodeError):
+                states = {}
         
+        # Add new state
         states[state] = {
             'patient_id': patient_id,
             'created_at': datetime.now().isoformat(),
             'expires_at': (datetime.now() + timedelta(minutes=10)).isoformat()
         }
         
-        with open(state_file, 'w') as f:
-            json.dump(states, f, indent=2)
+        # Save states
+        if self.use_cloud_storage:
+            try:
+                blob = self.bucket.blob(f"{self.gcs_tokens_prefix}auth_states.json")
+                blob.upload_from_string(json.dumps(states, indent=2), content_type='application/json')
+            except Exception as e:
+                logger.error(f"Could not save auth states to Cloud Storage: {e}")
+                raise
+        else:
+            state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+            with open(state_file, 'w') as f:
+                json.dump(states, f, indent=2)
     
     def get_credentials(self, code, state=None):
         """Exchange authorization code for access and refresh tokens"""
@@ -172,30 +209,54 @@ class WithingsAuthManager:
     
     def _verify_auth_state(self, state):
         """Verify auth state and return patient_id"""
-        state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+        states = {}
         
-        try:
-            with open(state_file, 'r') as f:
-                content = f.read().strip()
-                states = json.loads(content) if content else {}
-            
-            state_info = states.get(state)
-            if not state_info:
+        # Load states
+        if self.use_cloud_storage:
+            try:
+                blob = self.bucket.blob(f"{self.gcs_tokens_prefix}auth_states.json")
+                if blob.exists():
+                    content = blob.download_as_text()
+                    states = json.loads(content) if content.strip() else {}
+            except Exception as e:
+                logger.warning(f"Could not load auth states from Cloud Storage: {e}")
                 return None
-            
-            expires_at = datetime.fromisoformat(state_info['expires_at'])
-            if datetime.now() > expires_at:
-                logger.warning("⚠️ Auth state has expired")
+        else:
+            state_file = os.path.join(self.tokens_dir, 'auth_states.json')
+            try:
+                with open(state_file, 'r') as f:
+                    content = f.read().strip()
+                    states = json.loads(content) if content else {}
+            except (FileNotFoundError, json.JSONDecodeError):
                 return None
-            
-            del states[state]
+        
+        # Verify state
+        state_info = states.get(state)
+        if not state_info:
+            return None
+        
+        # Check expiration
+        expires_at = datetime.fromisoformat(state_info['expires_at'])
+        if datetime.now() > expires_at:
+            logger.warning("⚠️ Auth state has expired")
+            return None
+        
+        # Remove used state
+        del states[state]
+        
+        # Save updated states
+        if self.use_cloud_storage:
+            try:
+                blob = self.bucket.blob(f"{self.gcs_tokens_prefix}auth_states.json")
+                blob.upload_from_string(json.dumps(states, indent=2), content_type='application/json')
+            except Exception as e:
+                logger.warning(f"Could not save auth states to Cloud Storage: {e}")
+        else:
+            state_file = os.path.join(self.tokens_dir, 'auth_states.json')
             with open(state_file, 'w') as f:
                 json.dump(states, f, indent=2)
-            
-            return state_info['patient_id']
-            
-        except FileNotFoundError:
-            return None
+        
+        return state_info['patient_id']
     
     def _save_tokens_to_cloud_storage(self, patient_id, token_data):
         blob_name = f"{self.gcs_tokens_prefix}withings_{patient_id}.json"

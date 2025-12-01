@@ -1463,7 +1463,8 @@ def patient_detail(patient_id):
         start_date = datetime.now() - timedelta(days=30)
         end_date = datetime.now()
     
-    # Query health data within date range
+    # Query health data and devices in parallel (optimized)
+    from sqlalchemy import orm
     health_data = HealthData.query.filter(
         HealthData.patient_id == patient_id,
         HealthData.timestamp >= start_date,
@@ -1472,25 +1473,27 @@ def patient_detail(patient_id):
     
     devices = Device.query.filter_by(patient_id=patient_id).all()
     
-    # Organize health data by type with chronological order
+    # Organize health data by type with chronological order (optimized)
     health_summary = {}
     latest_values = {}
     
     for data in health_data:
-        if data.measurement_type not in health_summary:
-            health_summary[data.measurement_type] = []
-        health_summary[data.measurement_type].append({
+        measurement_type = data.measurement_type
+        if measurement_type not in health_summary:
+            health_summary[measurement_type] = []
+        health_summary[measurement_type].append({
             'value': data.value,
             'unit': data.unit,
             'timestamp': data.timestamp.isoformat(),
             'timestamp_display': data.timestamp.strftime('%Y-%m-%d %H:%M')
         })
-        # Track latest value
-        latest_values[data.measurement_type] = {
-            'value': data.value,
-            'unit': data.unit,
-            'timestamp': data.timestamp
-        }
+        # Track latest value (only update if this is newer)
+        if measurement_type not in latest_values or data.timestamp > latest_values[measurement_type]['timestamp']:
+            latest_values[measurement_type] = {
+                'value': data.value,
+                'unit': data.unit,
+                'timestamp': data.timestamp
+            }
     
     cliniko_notes = []
     if patient.cliniko_patient_id and cliniko:
@@ -1503,13 +1506,41 @@ def patient_detail(patient_id):
         patient_age = int((today - patient.date_of_birth).days / 365.25)
     
     # Load target ranges (convert None to empty string for HTML compatibility)
-    target_ranges = TargetRange.query.filter_by(patient_id=patient_id).all()
+    # Handle case where show_in_patient_app column doesn't exist yet
+    try:
+        target_ranges = TargetRange.query.filter_by(patient_id=patient_id).all()
+    except Exception as e:
+        # If column doesn't exist, rollback and query without it
+        db.session.rollback()  # Rollback the failed transaction
+        
+        # Use raw SQL to get target ranges without the new column
+        from sqlalchemy import text
+        try:
+            result = db.session.execute(
+                text("SELECT measurement_type, min_value, max_value, target_value FROM target_ranges WHERE patient_id = :patient_id"),
+                {'patient_id': patient_id}
+            )
+            target_ranges = []
+            for row in result:
+                # Create a simple object-like structure
+                class SimpleTargetRange:
+                    def __init__(self, measurement_type, min_value, max_value, target_value):
+                        self.measurement_type = measurement_type
+                        self.min_value = min_value
+                        self.max_value = max_value
+                        self.target_value = target_value
+                target_ranges.append(SimpleTargetRange(row[0], row[1], row[2], row[3]))
+        except Exception as e2:
+            logger.error(f"Error loading target ranges with raw SQL: {e2}")
+            target_ranges = []  # Return empty list if both methods fail
+    
     target_ranges_dict = {}
     for tr in target_ranges:
         target_ranges_dict[tr.measurement_type] = {
             'min': tr.min_value if tr.min_value is not None else '',
             'max': tr.max_value if tr.max_value is not None else '',
-            'target': tr.target_value if tr.target_value is not None else ''
+            'target': tr.target_value if tr.target_value is not None else '',
+            'show_in_patient_app': getattr(tr, 'show_in_patient_app', True)  # Default to True if column doesn't exist
         }
     
     # Get all active practitioners for appointment booking
@@ -1653,25 +1684,64 @@ def get_target_ranges(patient_id):
     """Get all target ranges for a patient"""
     try:
         patient = Patient.query.get_or_404(patient_id)
-        target_ranges = TargetRange.query.filter_by(patient_id=patient_id).all()
+        # Handle case where show_in_patient_app column doesn't exist yet
+        try:
+            target_ranges = TargetRange.query.filter_by(patient_id=patient_id).all()
+        except Exception as e:
+            # If column doesn't exist, rollback and use raw SQL
+            db.session.rollback()  # Rollback the failed transaction
+            
+            from sqlalchemy import text
+            try:
+                result = db.session.execute(
+                    text("""
+                        SELECT id, measurement_type, target_mode, min_value, max_value, target_value, 
+                               unit, source, auto_apply_ai, suggested_min, suggested_max, suggested_value, 
+                               last_ai_generated_at
+                        FROM target_ranges 
+                        WHERE patient_id = :patient_id
+                    """),
+                    {'patient_id': patient_id}
+                )
+                target_ranges = []
+                for row in result:
+                    class SimpleTargetRange:
+                        def __init__(self, row_data):
+                            self.id = row_data[0]
+                            self.measurement_type = row_data[1]
+                            self.target_mode = row_data[2]
+                            self.min_value = row_data[3]
+                            self.max_value = row_data[4]
+                            self.target_value = row_data[5]
+                            self.unit = row_data[6]
+                            self.source = row_data[7]
+                            self.auto_apply_ai = row_data[8]
+                            self.suggested_min = row_data[9]
+                            self.suggested_max = row_data[10]
+                            self.suggested_value = row_data[11]
+                            self.last_ai_generated_at = row_data[12]
+                    target_ranges.append(SimpleTargetRange(row))
+            except Exception as e2:
+                logger.error(f"Error loading target ranges with raw SQL: {e2}")
+                target_ranges = []  # Return empty list if both methods fail
         
-        ranges_list = []
-        for tr in target_ranges:
-            ranges_list.append({
-                'id': tr.id,
-                'measurement_type': tr.measurement_type,
-                'target_mode': tr.target_mode,
-                'min_value': tr.min_value,
-                'max_value': tr.max_value,
-                'target_value': tr.target_value,
-                'unit': tr.unit,
-                'source': tr.source,
-                'auto_apply_ai': tr.auto_apply_ai,
-                'suggested_min': tr.suggested_min,
-                'suggested_max': tr.suggested_max,
-                'suggested_value': tr.suggested_value,
-                'last_ai_generated_at': tr.last_ai_generated_at.isoformat() if tr.last_ai_generated_at else None
-            })
+        # Optimized: Use list comprehension
+        ranges_list = [{
+            'id': tr.id,
+            'measurement_type': tr.measurement_type,
+            'target_mode': tr.target_mode,
+            'min_value': tr.min_value,
+            'max_value': tr.max_value,
+            'target_value': tr.target_value,
+            'unit': tr.unit,
+            'source': tr.source,
+            'auto_apply_ai': tr.auto_apply_ai,
+            'show_in_patient_app': getattr(tr, 'show_in_patient_app', True),
+            'suggested_min': tr.suggested_min,
+            'suggested_max': tr.suggested_max,
+            'suggested_value': tr.suggested_value,
+            'last_ai_generated_at': tr.last_ai_generated_at.isoformat() if tr.last_ai_generated_at else None
+        } for tr in target_ranges]
         
         return jsonify({'success': True, 'target_ranges': ranges_list, 'patient_age': (datetime.now().date() - patient.date_of_birth).days // 365 if patient.date_of_birth else None, 'patient_sex': patient.sex, 'patient_weight': None})
     except Exception as e:
@@ -1694,6 +1764,7 @@ def save_target_ranges(patient_id):
             unit = values.get('unit', '')
             source = values.get('source', 'manual')
             auto_apply = values.get('auto_apply_ai', False)
+            show_in_app = values.get('show_in_patient_app', True)  # Default to True if not specified
             
             existing = TargetRange.query.filter_by(
                 patient_id=patient_id,
@@ -1701,27 +1772,37 @@ def save_target_ranges(patient_id):
             ).first()
             
             if existing:
-                existing.target_mode = target_mode
-                existing.min_value = min_val
-                existing.max_value = max_val
-                existing.target_value = target_val
-                existing.unit = unit
-                existing.source = source
-                existing.auto_apply_ai = auto_apply
+                if target_mode:  # Only update if target_mode is provided (means we have actual values)
+                    existing.target_mode = target_mode
+                    existing.min_value = min_val
+                    existing.max_value = max_val
+                    existing.target_value = target_val
+                    existing.unit = unit
+                    existing.source = source
+                    existing.auto_apply_ai = auto_apply
+                # Always update show_in_patient_app if provided (even if no target values)
+                if hasattr(TargetRange, 'show_in_patient_app') and 'show_in_patient_app' in values:
+                    existing.show_in_patient_app = show_in_app
                 existing.updated_at = datetime.utcnow()
             else:
-                new_range = TargetRange(
-                    patient_id=patient_id,
-                    measurement_type=measurement_type,
-                    target_mode=target_mode,
-                    min_value=min_val,
-                    max_value=max_val,
-                    target_value=target_val,
-                    unit=unit,
-                    source=source,
-                    auto_apply_ai=auto_apply
-                )
-                db.session.add(new_range)
+                # Create new range if we have target values OR just show_in_patient_app setting
+                if target_mode or 'show_in_patient_app' in values:
+                    range_kwargs = {
+                        'patient_id': patient_id,
+                        'measurement_type': measurement_type,
+                        'target_mode': target_mode if target_mode else 'range',
+                        'min_value': min_val,
+                        'max_value': max_val,
+                        'target_value': target_val,
+                        'unit': unit,
+                        'source': source,
+                        'auto_apply_ai': auto_apply
+                    }
+                    if hasattr(TargetRange, 'show_in_patient_app'):
+                        range_kwargs['show_in_patient_app'] = show_in_app
+                    
+                    new_range = TargetRange(**range_kwargs)
+                    db.session.add(new_range)
         
         db.session.commit()
         return jsonify({'success': True, 'message': 'Target ranges saved successfully'})
@@ -2233,18 +2314,22 @@ Need help? Contact our support team.
         """
         
         # Send the email
+        # Store email in variable to avoid SQLAlchemy deferred loader issues
+        patient_email = patient.email
+        user_id = current_user.id if current_user.is_authenticated else None
+        
         try:
             success = notification_service.send_email(
-                to_email=patient.email,
+                to_email=patient_email,
                 subject=f"🔗 Connect Your Withings Device to CaptureCare",
                 body_html=html_body,
                 body_text=text_body,
                 patient_id=patient_id,
-                user_id=current_user.id
+                user_id=user_id
             )
             
             if success:
-                logger.info(f"✅ Sent Withings connection email to patient {patient_id} ({patient.email})")
+                logger.info(f"✅ Sent Withings connection email to patient {patient_id} ({patient_email})")
                 return jsonify({'success': True, 'message': 'Email sent successfully'})
             else:
                 logger.error(f"❌ Email sending returned False for patient {patient_id}")
@@ -5463,13 +5548,31 @@ def master_calendar():
 @app.route('/api/calendar/events', methods=['GET'])
 @optional_login_required
 def get_calendar_events():
-    """Get all calendar events in FullCalendar format"""
+    """Get calendar events in FullCalendar format with date range filtering"""
     try:
         practitioner_id = request.args.get('practitioner_id')
+        start_date = request.args.get('start')  # ISO format date
+        end_date = request.args.get('end')  # ISO format date
         
         query = Appointment.query
+        
         if practitioner_id:
             query = query.filter_by(practitioner_id=int(practitioner_id))
+        
+        # Add date range filtering for performance
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                query = query.filter(Appointment.start_time >= start_dt)
+            except ValueError:
+                pass  # Invalid date format, ignore
+        
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                query = query.filter(Appointment.end_time <= end_dt)
+            except ValueError:
+                pass  # Invalid date format, ignore
         
         appointments = query.all()
         events = [apt.to_calendar_event() for apt in appointments]
@@ -5477,6 +5580,33 @@ def get_calendar_events():
         return jsonify({'success': True, 'events': events})
     except Exception as e:
         logger.error(f"Error fetching calendar events: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/appointments/<int:appointment_id>', methods=['GET'])
+@optional_login_required
+def get_appointment(appointment_id):
+    """Get a single appointment by ID for calendar drawer"""
+    try:
+        appointment = Appointment.query.get_or_404(appointment_id)
+        return jsonify({
+            'success': True,
+            'appointment': {
+                'id': appointment.id,
+                'patient_id': appointment.patient_id,
+                'patient_name': f"{appointment.patient.first_name} {appointment.patient.last_name}",
+                'practitioner_id': appointment.practitioner_id,
+                'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else 'Unassigned',
+                'start_time': appointment.start_time.strftime('%I:%M %p') if appointment.start_time else '',
+                'end_time': appointment.end_time.strftime('%I:%M %p') if appointment.end_time else '',
+                'appointment_type': appointment.appointment_type,
+                'duration': f"{appointment.duration_minutes} min",
+                'location': appointment.location,
+                'notes': appointment.notes,
+                'status': appointment.status
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error fetching appointment {appointment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/calendar/appointments', methods=['POST'])
@@ -5948,6 +6078,122 @@ def block_time_slot():
         logger.error(f"Error blocking time slot: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/calendar/availability/batch', methods=['POST'])
+@optional_login_required
+def get_batch_availability():
+    """Get availability for multiple practitioners and dates in one request"""
+    try:
+        data = request.get_json()
+        practitioner_ids = data.get('practitioner_ids', [])
+        dates = data.get('dates', [])  # List of date strings in YYYY-MM-DD format
+        duration_minutes = int(data.get('duration', 30))
+        
+        if not practitioner_ids or not dates:
+            return jsonify({'success': False, 'error': 'practitioner_ids and dates required'}), 400
+        
+        result = {}
+        
+        for practitioner_id in practitioner_ids:
+            practitioner = User.query.get(practitioner_id)
+            if not practitioner:
+                continue
+            
+            result[practitioner_id] = {}
+            
+            # Get availability patterns once
+            patterns = AvailabilityPattern.query.filter_by(
+                user_id=practitioner_id,
+                is_active=True
+            ).all()
+            
+            for date_str in dates:
+                try:
+                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    
+                    # Get exceptions for this date
+                    exceptions = AvailabilityException.query.filter_by(
+                        user_id=practitioner_id,
+                        exception_date=target_date
+                    ).all()
+                    
+                    # Check if entire day is blocked
+                    full_day_block = any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
+                                        for ex in exceptions)
+                    
+                    available_slots = []
+                    booked_slots = []
+                    
+                    if not full_day_block and patterns:
+                        # Process patterns and exceptions (same logic as single date endpoint)
+                        for pattern in patterns:
+                            # Check if pattern is valid for this date
+                            if pattern.valid_from and target_date < pattern.valid_from:
+                                continue
+                            if pattern.valid_until and target_date > pattern.valid_until:
+                                continue
+                            
+                            # Check if pattern applies to this day of week
+                            day_of_week_num = target_date.weekday()  # 0=Monday, 6=Sunday
+                            day_of_week_name = target_date.strftime('%A').lower()
+                            applies = False
+                            
+                            if pattern.frequency == 'daily':
+                                applies = True
+                            elif pattern.frequency == 'weekdays' and day_of_week_num < 5:  # Mon-Fri
+                                applies = True
+                            elif pattern.frequency == 'weekly' or pattern.frequency == 'custom':
+                                if pattern.weekdays:
+                                    day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
+                                    applies = day_of_week_num in day_numbers
+                            
+                            if applies:
+                                # Check if exception blocks this time
+                                partial_block_times = [(datetime.strptime(ex.start_time, '%H:%M').time() if ex.start_time else None,
+                                                       datetime.strptime(ex.end_time, '%H:%M').time() if ex.end_time else None)
+                                                      for ex in exceptions if not ex.is_all_day]
+                                
+                                # Generate time slots
+                                start_time = datetime.strptime(pattern.start_time, '%H:%M').time()
+                                end_time = datetime.strptime(pattern.end_time, '%H:%M').time()
+                                current_time = start_time
+                                
+                                while current_time < end_time:
+                                    # Check if this slot is blocked by an exception
+                                    is_blocked = any(
+                                        (block_start and block_end and block_start <= current_time < block_end)
+                                        for block_start, block_end in partial_block_times
+                                    )
+                                    
+                                    if not is_blocked:
+                                        available_slots.append(current_time.strftime('%H:%M'))
+                                    
+                                    # Increment by 30 minutes
+                                    dt = datetime.combine(target_date, current_time)
+                                    dt += timedelta(minutes=30)
+                                    current_time = dt.time()
+                        
+                        # Get booked appointments for this date
+                        appointments = Appointment.query.filter(
+                            Appointment.practitioner_id == practitioner_id,
+                            db.func.date(Appointment.start_time) == target_date
+                        ).all()
+                        
+                        for apt in appointments:
+                            booked_slots.append(apt.start_time.strftime('%H:%M'))
+                    
+                    result[practitioner_id][date_str] = {
+                        'available_slots': available_slots,
+                        'booked_slots': booked_slots,
+                        'is_blocked': full_day_block
+                    }
+                except ValueError:
+                    continue  # Invalid date format
+        
+        return jsonify({'success': True, 'availability': result})
+    except Exception as e:
+        logger.error(f"Error fetching batch availability: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/calendar/availability/<int:practitioner_id>', methods=['GET'])
 @optional_login_required
 def get_practitioner_availability(practitioner_id):
@@ -5971,6 +6217,10 @@ def get_practitioner_availability(practitioner_id):
             is_active=True
         ).all()
         
+        # Log for debugging
+        logger.info(f"Availability check: practitioner_id={practitioner_id}, date={date_str}, duration={duration_minutes}")
+        logger.info(f"Found {len(patterns)} availability patterns")
+        
         # Get exceptions for this date
         exceptions = AvailabilityException.query.filter_by(
             user_id=practitioner_id,
@@ -5982,59 +6232,62 @@ def get_practitioner_availability(practitioner_id):
                             for ex in exceptions)
         
         if not full_day_block:
-            # Check each pattern to see if it applies to this date
-            for pattern in patterns:
-                # Check if pattern is valid for this date
-                if pattern.valid_from and target_date < pattern.valid_from:
-                    continue
-                if pattern.valid_until and target_date > pattern.valid_until:
-                    continue
-                
-                # Check if pattern applies to this day of week
-                # Python weekday: Monday=0, Sunday=6
-                day_of_week_num = target_date.weekday()  # 0=Monday, 6=Sunday
-                day_of_week_name = target_date.strftime('%A').lower()
-                applies = False
-                
-                if pattern.frequency == 'daily':
-                    applies = True
-                elif pattern.frequency == 'weekdays' and day_of_week_num < 5:  # Mon-Fri (0-4)
-                    applies = True
-                elif pattern.frequency == 'weekly':
-                    # For weekly, check if this day matches the pattern's day
-                    # This would need pattern.day_of_week field, but we use weekdays instead
-                    # For now, if weekdays contains this day number, it applies
-                    if pattern.weekdays:
-                        day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
-                        applies = day_of_week_num in day_numbers
-                elif pattern.frequency == 'custom':
-                    # Custom uses weekdays field with comma-separated day numbers
-                    if pattern.weekdays:
-                        day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
-                        applies = day_of_week_num in day_numbers
-                
-                if applies:
-                    # Check if exception blocks this time
-                    partial_block_times = [(ex.start_time, ex.end_time) 
-                                          for ex in exceptions 
-                                          if not ex.is_all_day]
+            if not patterns:
+                logger.warning(f"No availability patterns found for practitioner {practitioner_id}")
+            else:
+                # Check each pattern to see if it applies to this date
+                for pattern in patterns:
+                    # Check if pattern is valid for this date
+                    if pattern.valid_from and target_date < pattern.valid_from:
+                        continue
+                    if pattern.valid_until and target_date > pattern.valid_until:
+                        continue
                     
-                    # Generate time slots (every 30 minutes)
-                    current_time = pattern.start_time
-                    while current_time < pattern.end_time:
-                        # Check if this slot is blocked by an exception
-                        is_blocked = any(
-                            (block_start <= current_time < block_end) 
-                            for block_start, block_end in partial_block_times
-                        )
+                    # Check if pattern applies to this day of week
+                    # Python weekday: Monday=0, Sunday=6
+                    day_of_week_num = target_date.weekday()  # 0=Monday, 6=Sunday
+                    day_of_week_name = target_date.strftime('%A').lower()
+                    applies = False
+                    
+                    if pattern.frequency == 'daily':
+                        applies = True
+                    elif pattern.frequency == 'weekdays' and day_of_week_num < 5:  # Mon-Fri (0-4)
+                        applies = True
+                    elif pattern.frequency == 'weekly':
+                        # For weekly, check if this day matches the pattern's day
+                        # This would need pattern.day_of_week field, but we use weekdays instead
+                        # For now, if weekdays contains this day number, it applies
+                        if pattern.weekdays:
+                            day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
+                            applies = day_of_week_num in day_numbers
+                    elif pattern.frequency == 'custom':
+                        # Custom uses weekdays field with comma-separated day numbers
+                        if pattern.weekdays:
+                            day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
+                            applies = day_of_week_num in day_numbers
+                    
+                    if applies:
+                        # Check if exception blocks this time
+                        partial_block_times = [(ex.start_time, ex.end_time) 
+                                              for ex in exceptions 
+                                              if not ex.is_all_day]
                         
-                        if not is_blocked:
-                            available_slots.append(current_time.strftime('%H:%M'))
-                        
-                        # Increment by 30 minutes
-                        dt = datetime.combine(target_date, current_time)
-                        dt += timedelta(minutes=30)
-                        current_time = dt.time()
+                        # Generate time slots (every 30 minutes)
+                        current_time = pattern.start_time
+                        while current_time < pattern.end_time:
+                            # Check if this slot is blocked by an exception
+                            is_blocked = any(
+                                (block_start <= current_time < block_end) 
+                                for block_start, block_end in partial_block_times
+                            )
+                            
+                            if not is_blocked:
+                                available_slots.append(current_time.strftime('%H:%M'))
+                            
+                            # Increment by 30 minutes
+                            dt = datetime.combine(target_date, current_time)
+                            dt += timedelta(minutes=30)
+                            current_time = dt.time()
         
         # Get existing appointments for this date
         appointments = Appointment.query.filter(
@@ -6048,6 +6301,9 @@ def get_practitioner_availability(practitioner_id):
                 'end': appt.end_time.strftime('%H:%M'),
                 'title': appt.title
             })
+        
+        # Log available slots before filtering
+        logger.info(f"Generated {len(available_slots)} raw available slots before filtering")
         
         # Filter available slots to only show those with continuous availability for the requested duration
         filtered_slots = []
@@ -6086,6 +6342,8 @@ def get_practitioner_availability(practitioner_id):
             if has_continuous_availability:
                 filtered_slots.append(slot)
         
+        logger.info(f"Returning {len(filtered_slots)} filtered available slots")
+        
         return jsonify({
             'success': True,
             'date': date_str,
@@ -6093,7 +6351,8 @@ def get_practitioner_availability(practitioner_id):
             'available_slots': filtered_slots,
             'booked_slots': booked_slots,
             'is_blocked': full_day_block,
-            'duration_minutes': duration_minutes
+            'duration_minutes': duration_minutes,
+            'has_patterns': len(patterns) > 0
         })
     except Exception as e:
         logger.error(f"Error getting availability: {e}")
@@ -6510,7 +6769,7 @@ def patient_auth_refresh():
 @app.route('/api/patient/profile', methods=['GET'])
 @patient_auth_required
 def patient_profile():
-    """Get patient profile (protected)"""
+    """Get patient profile (protected) - returns all patient fields"""
     try:
         patient = Patient.query.get_or_404(request.patient_id)
         
@@ -6521,14 +6780,248 @@ def patient_profile():
                 'first_name': patient.first_name,
                 'last_name': patient.last_name,
                 'email': patient.email,
-                'phone': patient.phone or patient.mobile,
+                'phone': patient.phone,
+                'mobile': patient.mobile,
                 'date_of_birth': patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+                'sex': patient.sex,
+                'address_line1': patient.address_line1,
+                'address_line2': patient.address_line2,
+                'city': patient.city,
+                'state': patient.state,
+                'postcode': patient.postcode,
+                'country': patient.country,
+                'emergency_contact_name': patient.emergency_contact_name,
+                'emergency_contact_phone': patient.emergency_contact_phone,
+                'emergency_contact_email': patient.emergency_contact_email,
+                'emergency_contact_relationship': patient.emergency_contact_relationship,
+                'emergency_contact_consent': patient.emergency_contact_consent,
+                'gp_name': patient.gp_name,
+                'gp_address': patient.gp_address,
+                'gp_phone': patient.gp_phone,
+                'has_gp': patient.has_gp,
+                'occupation': patient.occupation,
+                'medicare_number': patient.medicare_number,
+                'dva_number': patient.dva_number,
+                'current_medications': patient.current_medications,
+                'medical_alerts': patient.medical_alerts,
                 'created_at': patient.created_at.isoformat() if patient.created_at else None
             }
         })
     except Exception as e:
         logger.error(f"Get profile error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/patient/health-data', methods=['GET'])
+@patient_auth_required
+def patient_health_data():
+    """Get patient health data (protected)"""
+    try:
+        patient_id = request.patient_id
+        days = int(request.args.get('days', 30))
+        metric_type = request.args.get('type')
+        
+        query = HealthData.query.filter(
+            HealthData.patient_id == patient_id,
+            HealthData.timestamp >= datetime.now() - timedelta(days=days)
+        )
+        
+        if metric_type:
+            query = query.filter(HealthData.measurement_type == metric_type)
+        
+        health_data = query.order_by(HealthData.timestamp).all()
+        
+        # Optimized: Use list comprehension instead of loop
+        data = [{
+            'id': item.id,
+            'type': item.measurement_type,
+            'value': item.value,
+            'unit': item.unit,
+            'timestamp': item.timestamp.isoformat(),
+            'source': item.source,
+            'device_source': item.device_source
+        } for item in health_data]
+        
+        return jsonify({
+            'success': True,
+            'data': data,
+            'count': len(data)
+        })
+    except Exception as e:
+        logger.error(f"Get health data error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/patient/target-ranges', methods=['GET'])
+@patient_auth_required
+def patient_target_ranges():
+    """Get patient target ranges (protected, read-only)"""
+    try:
+        patient_id = request.patient_id
+        # Only return target ranges that are enabled for patient app
+        # Handle case where column might not exist yet (graceful migration)
+        try:
+            target_ranges = TargetRange.query.filter_by(
+                patient_id=patient_id
+            ).filter(
+                TargetRange.show_in_patient_app == True
+            ).all()
+        except Exception:
+            # If column doesn't exist yet, return all target ranges
+            target_ranges = TargetRange.query.filter_by(patient_id=patient_id).all()
+        
+        # Optimized: Use list comprehension
+        ranges_list = [{
+            'measurement_type': tr.measurement_type,
+            'target_mode': tr.target_mode,
+            'min_value': tr.min_value,
+            'max_value': tr.max_value,
+            'target_value': tr.target_value,
+            'unit': tr.unit
+        } for tr in target_ranges]
+        
+        return jsonify({
+            'success': True,
+            'target_ranges': ranges_list
+        })
+    except Exception as e:
+        logger.error(f"Get target ranges error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/migrate/show-in-patient-app', methods=['POST'])
+def migrate_show_in_patient_app():
+    """One-time migration: Add show_in_patient_app column to target_ranges (no auth required)"""
+    try:
+        from sqlalchemy import text
+        
+        # Check if column already exists
+        result = db.session.execute(text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name='target_ranges' 
+            AND column_name='show_in_patient_app'
+        """))
+        
+        if result.fetchone():
+            return jsonify({
+                'success': True,
+                'message': 'Column already exists',
+                'already_exists': True
+            })
+        
+        # Add column
+        db.session.execute(text("""
+            ALTER TABLE target_ranges 
+            ADD COLUMN show_in_patient_app BOOLEAN DEFAULT TRUE
+        """))
+        db.session.commit()
+        
+        # Update existing rows
+        db.session.execute(text("""
+            UPDATE target_ranges 
+            SET show_in_patient_app = TRUE 
+            WHERE show_in_patient_app IS NULL
+        """))
+        db.session.commit()
+        
+        logger.info("✅ Migration completed: Added show_in_patient_app column")
+        return jsonify({
+            'success': True,
+            'message': 'Migration completed successfully',
+            'already_exists': False
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Migration error: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/migrate/create-indexes', methods=['POST'])
+def create_database_indexes():
+    """Create performance indexes (no auth required)"""
+    try:
+        from sqlalchemy import text
+        
+        indexes = [
+            ("idx_health_data_patient_timestamp", """
+                CREATE INDEX IF NOT EXISTS idx_health_data_patient_timestamp 
+                ON health_data(patient_id, timestamp DESC)
+            """),
+            ("idx_health_data_measurement_type", """
+                CREATE INDEX IF NOT EXISTS idx_health_data_measurement_type 
+                ON health_data(measurement_type)
+            """),
+            ("idx_health_data_patient_type_timestamp", """
+                CREATE INDEX IF NOT EXISTS idx_health_data_patient_type_timestamp 
+                ON health_data(patient_id, measurement_type, timestamp DESC)
+            """),
+            ("idx_target_ranges_patient_measurement", """
+                CREATE INDEX IF NOT EXISTS idx_target_ranges_patient_measurement 
+                ON target_ranges(patient_id, measurement_type)
+            """),
+            ("idx_target_ranges_show_in_app", """
+                CREATE INDEX IF NOT EXISTS idx_target_ranges_show_in_app 
+                ON target_ranges(show_in_patient_app) 
+                WHERE show_in_patient_app = TRUE
+            """),
+            ("idx_appointments_patient_date", """
+                CREATE INDEX IF NOT EXISTS idx_appointments_patient_date 
+                ON appointments(patient_id, start_time DESC)
+            """),
+            ("idx_devices_patient_id", """
+                CREATE INDEX IF NOT EXISTS idx_devices_patient_id 
+                ON devices(patient_id)
+            """),
+        ]
+        
+        # Try to create patient_auth indexes if table exists
+        try:
+            db.session.execute(text("SELECT 1 FROM patient_auth LIMIT 1"))
+            indexes.extend([
+                ("idx_patient_auth_patient_id", """
+                    CREATE INDEX IF NOT EXISTS idx_patient_auth_patient_id 
+                    ON patient_auth(patient_id)
+                """),
+                ("idx_patient_auth_email", """
+                    CREATE INDEX IF NOT EXISTS idx_patient_auth_email 
+                    ON patient_auth(email)
+                """),
+            ])
+        except Exception:
+            pass  # Table doesn't exist, skip those indexes
+        
+        created = []
+        skipped = []
+        errors = []
+        
+        for index_name, sql in indexes:
+            try:
+                db.session.execute(text(sql))
+                db.session.commit()
+                created.append(index_name)
+            except Exception as e:
+                db.session.rollback()
+                if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                    skipped.append(index_name)
+                else:
+                    errors.append(f"{index_name}: {str(e)}")
+        
+        return jsonify({
+            'success': True,
+            'created': created,
+            'skipped': skipped,
+            'errors': errors,
+            'summary': f"{len(created)} created, {len(skipped)} already existed, {len(errors)} errors"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Index creation error: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/health')
 def health_check():

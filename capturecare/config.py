@@ -47,6 +47,7 @@ class Config:
                 'SMTP_FROM_EMAIL': 'smtp-from-email',
                 'GOOGLE_CLIENT_ID': 'google-client-id',
                 'GOOGLE_CLIENT_SECRET': 'google-client-secret',
+                'JWT_SECRET': 'jwt-secret',
             }
             
             for env_var, secret_name in secrets.items():

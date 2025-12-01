@@ -1,0 +1,277 @@
+/* Calendar Spec Styles - Practitioner Colors and Badge System */
+
+/* Practitioner Color Palette (from spec) */
+:root {
+    --pract-db: #6A5ACD;  /* David Brown - Soft Purple */
+    --pract-ew: #FF4E4E;  /* Emma Williams - Coral Red */
+    --pract-la: #FF69B4;  /* Lisa Anderson - Hot Pink */
+    --pract-mc: #FFA500;  /* Michael Chen - Amber */
+    --pract-sj: #00A86B;  /* Sarah Johnson - Teal Green */
+    
+    /* State Colors */
+    --state-available: #F3F3F3;
+    --state-cancelled-border: #FF4E4E;
+    --state-noshow-border: #000000;
+    --state-late-border: #FFC300;
+}
+
+/* Appointment Badge (90px x 32px pill) */
+.appointment-badge {
+    width: 90px;
+    height: 32px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+    cursor: pointer;
+    transition: all 120ms ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    line-height: 1.2;
+    min-height: 40px; /* Accessibility: min click target */
+}
+
+.appointment-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    z-index: 10;
+}
+
+.appointment-badge .practitioner-initials {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.appointment-badge .patient-info {
+    font-size: 10px;
+    font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* State Overlays */
+.appointment-badge.cancelled {
+    border: 2px solid var(--state-cancelled-border);
+    background-color: rgba(255, 78, 78, 0.2);
+}
+
+.appointment-badge.no-show {
+    border: 2px solid var(--state-noshow-border);
+}
+
+.appointment-badge.late {
+    border: 2px solid var(--state-late-border);
+}
+
+/* Available Slot */
+.available-slot {
+    background-color: var(--state-available);
+    border: 1px dashed #ccc;
+    min-height: 40px;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.available-slot:hover {
+    background-color: #e8e8e8;
+}
+
+/* Tooltip */
+.appointment-tooltip {
+    position: absolute;
+    width: 320px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 16px;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.appointment-tooltip.show {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.appointment-tooltip .practitioner-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.appointment-tooltip .color-strip {
+    width: 4px;
+    height: 24px;
+    border-radius: 2px;
+}
+
+.appointment-tooltip .patient-name {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.appointment-tooltip .appointment-details {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.appointment-tooltip .tooltip-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+}
+
+.tooltip-button {
+    flex: 1;
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 120ms ease;
+}
+
+.tooltip-button:hover {
+    background: #f5f5f5;
+    border-color: #999;
+}
+
+.tooltip-button.primary {
+    background: var(--pract-db);
+    color: white;
+    border-color: var(--pract-db);
+}
+
+.tooltip-button.primary:hover {
+    background: #5a4ab8;
+}
+
+/* Side Drawer */
+.appointment-drawer {
+    position: fixed;
+    right: -400px;
+    top: 0;
+    width: 400px;
+    height: 100vh;
+    background: white;
+    box-shadow: -4px 0 12px rgba(0,0,0,0.15);
+    z-index: 10000;
+    transition: right 300ms ease;
+    overflow-y: auto;
+}
+
+.appointment-drawer.open {
+    right: 0;
+}
+
+.appointment-drawer .drawer-header {
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f9f9f9;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.appointment-drawer .drawer-content {
+    padding: 20px;
+}
+
+/* Practitioner Filter Badges */
+.practitioner-filter-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 120ms ease;
+    min-height: 40px; /* Accessibility */
+}
+
+.practitioner-filter-badge.active {
+    border-color: currentColor;
+    background: rgba(0,0,0,0.05);
+}
+
+.practitioner-filter-badge .color-badge {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Emoji Indicators */
+.emoji-indicator {
+    font-size: 12px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+/* Accessibility */
+.calendar-time-label {
+    font-size: 13px;
+    line-height: 1.4;
+    font-weight: 500;
+}
+
+/* Now Line (for real-time clinics) */
+.now-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #FF4E4E;
+    z-index: 100;
+    pointer-events: none;
+}
+
+.now-line::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    background: #FF4E4E;
+    border-radius: 50%;
+}
+
+/* Gradient for past hours */
+.past-hour {
+    background: linear-gradient(to bottom, rgba(0,0,0,0.02), transparent);
+}
+
+/* Sticky practitioner names in week view */
+.sticky-practitioner-header {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 20;
+    padding: 8px;
+    border-bottom: 2px solid #eee;
+}
+

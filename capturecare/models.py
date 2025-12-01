@@ -175,6 +175,7 @@ class TargetRange(db.Model):
     
     source = db.Column(db.String(10), default='manual')
     auto_apply_ai = db.Column(db.Boolean, default=False)
+    show_in_patient_app = db.Column(db.Boolean, default=True)  # Control visibility in patient iOS app
     
     suggested_min = db.Column(db.Float, nullable=True)
     suggested_max = db.Column(db.Float, nullable=True)
@@ -221,7 +222,21 @@ class Appointment(db.Model):
         return f'<Appointment {self.title} at {self.start_time}>'
     
     def to_calendar_event(self):
-        """Convert appointment to FullCalendar event format"""
+        """Convert appointment to FullCalendar event format with spec fields"""
+        # Determine if new patient (first appointment ever)
+        is_new_patient = False
+        if self.patient:
+            first_appt = Appointment.query.filter_by(patient_id=self.patient_id).order_by(Appointment.start_time.asc()).first()
+            is_new_patient = first_appt and first_appt.id == self.id
+        
+        # Determine appointment characteristics from type and location
+        appointment_type_lower = (self.appointment_type or '').lower()
+        location_lower = (self.location or '').lower()
+        is_telehealth = 'telehealth' in appointment_type_lower or 'telehealth' in location_lower or 'video' in location_lower
+        is_home_visit = 'home' in appointment_type_lower or 'home' in location_lower or 'visit' in appointment_type_lower
+        is_urgent = 'urgent' in appointment_type_lower or self.status == 'urgent'
+        is_long_consultation = self.duration_minutes and self.duration_minutes > 30
+        
         return {
             'id': self.id,
             'title': f"{self.patient.first_name} {self.patient.last_name} - {self.title}",
@@ -237,7 +252,13 @@ class Appointment(db.Model):
                 'appointment_type': self.appointment_type,
                 'location': self.location,
                 'notes': self.notes,
-                'status': self.status
+                'status': self.status,
+                'duration': f"{self.duration_minutes} min",
+                'is_new_patient': is_new_patient,
+                'is_urgent': is_urgent,
+                'is_telehealth': is_telehealth,
+                'is_home_visit': is_home_visit,
+                'is_long_consultation': is_long_consultation
             }
         }
 

@@ -2,6 +2,10 @@
 
 {% block title %}Master Calendar - CaptureCare{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='calendar_spec_styles.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="mb-8">
     <div class="flex justify-between items-start">
@@ -38,11 +42,12 @@
                     id="practitioner-{{ practitioner.id }}" 
                     data-practitioner-id="{{ practitioner.id }}"
                     onclick="togglePractitioner({{ practitioner.id }})"
-                    class="practitioner-toggle px-4 py-2 rounded-lg border-2 transition-all duration-200 flex items-center gap-2 hover:shadow-md active"
-                    style="border-color: {{ practitioner.calendar_color }};">
-                <div class="w-3 h-3 rounded-full" style="background-color: {{ practitioner.calendar_color }};"></div>
+                    class="practitioner-filter-badge practitioner-toggle active flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all duration-200 hover:shadow-md"
+                    style="border-color: {{ practitioner.calendar_color }}; color: {{ practitioner.calendar_color }};">
+                <div class="color-badge" style="background-color: {{ practitioner.calendar_color }};"></div>
                 <span class="font-medium">{{ practitioner.full_name }}</span>
-                <i class="fas fa-check text-green-600"></i>
+                <span class="text-xs">({{ practitioner.first_name[0] }}{{ practitioner.last_name[0] }})</span>
+                <i class="fas fa-check text-green-600 ml-auto"></i>
             </button>
             {% endfor %}
         </div>
@@ -288,9 +293,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Event sources - multiple sources for appointments and availability
         eventSources: [
-            // Source 1: Appointments
+            // Source 1: Appointments (with date range filtering)
             function(info, successCallback, failureCallback) {
-                fetch('/api/calendar/events')
+                // Only load events for visible date range
+                const startStr = info.startStr;
+                const endStr = info.endStr;
+                fetch(`/api/calendar/events?start=${startStr}&end=${endStr}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
@@ -378,6 +386,10 @@ let currentView = 'month';
 let currentWeekStart = new Date();
 let blockMode = false;
 let selectedPractitionerForBlock = null;
+
+// Cache for loaded months to avoid re-fetching
+const loadedMonthsCache = new Map(); // key: "YYYY-MM", value: {appointments, availability}
+const loadedWeeksCache = new Map(); // key: "YYYY-WW", value: {appointments, availability}
 
 // Initialize all practitioners as active on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -549,9 +561,17 @@ async function loadWeekGrid() {
         console.error('Error loading practitioners:', error);
     }
     
-    // Also load full appointment details for patient names
+    // Calculate date range for week (with small buffer)
+    const weekStart = new Date(weekDates[0]);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekDates[6]);
+    weekEnd.setHours(23, 59, 59, 999);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    
+    // Also load full appointment details for patient names with date range
     try {
-        const eventsResponse = await fetch('/api/calendar/events');
+        const eventsResponse = await fetch(`/api/calendar/events?start=${weekStartStr}&end=${weekEndStr}`);
         const eventsData = await eventsResponse.json();
         if (eventsData.success) {
             console.log(`📅 Week view: Loaded ${eventsData.events.length} appointments from API`);
@@ -571,13 +591,25 @@ async function loadWeekGrid() {
                     appointmentsData[dateStr].push({
                         start: timeStr,
                         end: endTimeStr,
+                        startTime: timeStr,
+                        endTime: endTimeStr,
                         title: event.title,
                         patientName: event.extendedProps?.patient_name || 'Unknown Patient',
                         patientId: event.extendedProps?.patient_id || '',
                         practitionerId: practId,
                         practitionerName: practitionerInfo[practId]?.name || 'Unknown',
                         practitionerColor: practitionerInfo[practId]?.color || '#3b82f6',
-                        appointmentId: event.id || ''
+                        appointmentId: event.id || '',
+                        appointmentType: event.extendedProps?.appointment_type || 'Standard',
+                        duration: event.extendedProps?.duration || '30 min',
+                        notes: event.extendedProps?.notes || '',
+                        status: event.extendedProps?.status || 'booked',
+                        isNewPatient: event.extendedProps?.is_new_patient || false,
+                        isUrgent: event.extendedProps?.is_urgent || false,
+                        isTelehealth: event.extendedProps?.is_telehealth || false,
+                        isHomeVisit: event.extendedProps?.is_home_visit || false,
+                        isLongConsultation: event.extendedProps?.duration && parseInt(event.extendedProps.duration) > 30,
+                        isOverlapping: false // Will be calculated if needed
                     });
                 }
             });
@@ -610,26 +642,51 @@ async function loadWeekGrid() {
                 console.error(`Error loading exceptions for ${dateStr}:`, error);
             }
             
-            // Load availability - track which practitioners are available
-            try {
-                const availResponse = await fetch(`/api/calendar/availability/${practitionerId}?date=${dateStr}&duration=30`);
-                const availData = await availResponse.json();
-                if (availData.success) {
-                    if (!availabilityData[dateStr]) availabilityData[dateStr] = {};
-                    availData.available_slots.forEach(slot => {
-                        if (!availabilityData[dateStr][slot]) {
-                            availabilityData[dateStr][slot] = [];
+        }
+    }
+    
+    // Load availability using batch API for week view
+    if (activePractitioners.size > 0) {
+        const weekDateStrings = weekDates.map(d => d.toISOString().split('T')[0]);
+        const practitionerIds = Array.from(activePractitioners).map(id => parseInt(id));
+        
+        try {
+            const batchResponse = await fetch('/api/calendar/availability/batch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    practitioner_ids: practitionerIds,
+                    dates: weekDateStrings,
+                    duration: 30
+                })
+            });
+            
+            const batchData = await batchResponse.json();
+            if (batchData.success) {
+                // Process batch availability data
+                for (const [practId, datesData] of Object.entries(batchData.availability)) {
+                    for (const [dateStr, availInfo] of Object.entries(datesData)) {
+                        if (!availabilityData[dateStr]) availabilityData[dateStr] = {};
+                        if (availInfo.available_slots) {
+                            availInfo.available_slots.forEach(slot => {
+                                if (!availabilityData[dateStr][slot]) {
+                                    availabilityData[dateStr][slot] = [];
+                                }
+                                availabilityData[dateStr][slot].push({
+                                    id: parseInt(practId),
+                                    name: practitionerInfo[practId]?.name || 'Unknown',
+                                    color: practitionerInfo[practId]?.color || '#10b981'
+                                });
+                            });
                         }
-                        availabilityData[dateStr][slot].push({
-                            id: practitionerId,
-                            name: practitionerInfo[practitionerId]?.name || 'Unknown',
-                            color: practitionerInfo[practitionerId]?.color || '#10b981'
-                        });
-                    });
+                    }
                 }
-            } catch (error) {
-                console.error(`Error loading availability for ${dateStr}:`, error);
+                console.log(`✅ Batch loaded availability for week view`);
             }
+        } catch (error) {
+            console.error('Error loading batch availability:', error);
         }
     }
     
@@ -690,68 +747,62 @@ async function loadWeekGrid() {
                 cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white"></i></div>';
                 onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}')`;
             } else if (isBooked) {
-                // Show RED circle for booked appointments with patient hover and click to patient detail
+                // Show appointment badge (90px x 32px pill) according to spec
                 const patientName = booking.patientName || 'Unknown Patient';
                 const patientId = booking.patientId || '';
                 const practName = booking.practitionerName || 'Unknown';
-                const practInitials = practName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
                 const appointmentId = booking.appointmentId || '';
-                const timeDisplay = timeStr; // Format time for display
+                const practitionerColor = getPractitionerColor(practName, booking.practitionerColor) || '#6A5ACD';
+                const practInitials = getPractitionerInitials(practName);
+                const patientDisplay = getPatientDisplay(patientName, booking.isNewPatient || false);
                 
-                cellClass += 'cursor-pointer hover:opacity-90 transition-opacity';
-                // Make the inner div draggable and clickable
-                cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center relative group" 
+                // Create badge HTML
+                const badgeHtml = createAppointmentBadge({
+                    practitionerName: practName,
+                    patientName: patientName,
+                    appointmentId: appointmentId,
+                    patientId: patientId,
+                    startTime: booking.start,
+                    endTime: booking.end,
+                    appointmentType: booking.appointmentType || 'Standard',
+                    duration: booking.duration || '30 min',
+                    notes: booking.notes || '',
+                    isNewPatient: booking.isNewPatient || false,
+                    isUrgent: booking.isUrgent || false,
+                    isTelehealth: booking.isTelehealth || false,
+                    isHomeVisit: booking.isHomeVisit || false,
+                    isLongConsultation: booking.isLongConsultation || false,
+                    isOverlapping: booking.isOverlapping || false,
+                    status: booking.status || 'booked',
+                    practitionerColor: practitionerColor
+                }, practitionerColor);
+                
+                cellClass += 'p-1 cursor-pointer';
+                cellContent = `<div class="flex items-center justify-center relative" 
                     draggable="true"
                     ondragstart="handleDragStart(event, '${dateStr}', '${timeStr}', '${appointmentId}')"
-                    ondragend="handleDragEnd(event)"
-                    onclick="event.stopPropagation(); ${blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : patientId ? `window.location.href='/patients/${patientId}'` : `viewBooking('${dateStr}', '${timeStr}')`}"
-                    data-appointment-id="${appointmentId}"
-                    data-patient-id="${patientId}">
-                    <!-- Red circle for booked appointment -->
-                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md bg-red-500 hover:bg-red-600 transition-colors" 
-                        title="Booked: ${patientName} with ${practName} at ${timeDisplay} - Click to view patient">
-                        ${practInitials}
-                    </div>
-                    <!-- Hover tooltip with patient name -->
-                    <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none">
-                        <div class="font-semibold text-red-300">${patientName}</div>
-                        <div class="text-gray-300 text-[10px]">${practName}</div>
-                        <div class="text-gray-400 text-[10px]">${timeDisplay}</div>
-                        <div class="text-gray-500 text-[10px] mt-1">Click to view patient</div>
-                        <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                            <div class="border-4 border-transparent border-t-gray-900"></div>
-                        </div>
-                    </div>
+                    ondragend="handleDragEnd(event)">
+                    ${badgeHtml}
                 </div>`;
-                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : patientId ? `window.location.href='/patients/${patientId}'` : `viewBooking('${dateStr}', '${timeStr}')`;
+                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : `openAppointmentDrawer(${appointmentId})`;
             } else if (isAvailable) {
-                // Show practitioner icons with their colors
+                // Show available slot with hover tooltip
                 if (blockMode) {
                     cellClass += 'bg-green-500 text-white hover:bg-green-600 cursor-pointer ring-2 ring-yellow-400';
                     cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white opacity-50"></i></div>';
                     onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}')`;
                 } else {
-                    cellClass += 'p-1 cursor-pointer';
-                    // Show small colored icons with initials
-                    if (availablePractitioners.length === 1) {
-                        const pract = availablePractitioners[0];
-                        const initials = pract.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
-                        cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center" title="${pract.name}">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm" style="background-color: ${pract.color};">
-                                ${initials}
-                            </div>
-                        </div>`;
-                    } else {
-                        // Multiple practitioners - show small icons in a row or grid
-                        cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center gap-1 flex-wrap">';
-                        availablePractitioners.forEach((pract) => {
-                            const initials = pract.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
-                            cellContent += `<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm" style="background-color: ${pract.color};" title="${pract.name}">
-                                ${initials}
-                            </div>`;
-                        });
-                        cellContent += '</div>';
-                    }
+                    cellClass += 'available-slot p-1 cursor-pointer relative';
+                    const practNames = availablePractitioners.map(p => p.name).join(', ');
+                    const practIds = availablePractitioners.map(p => p.id).join(',');
+                    
+                    // Show available indicator
+                    cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center text-gray-400 text-xs" 
+                        onmouseenter="showAvailableSlotTooltip(event, '${dateStr}', '${timeStr}', [${practIds}], '${practNames}')"
+                        onmouseleave="hideTooltip()">
+                        <span class="text-green-500">🟢</span>
+                    </div>`;
+                    
                     // If single practitioner, pass their ID; otherwise null (user selects)
                     const practId = availablePractitioners.length === 1 ? availablePractitioners[0].id : 'null';
                     onClickAction = `selectTimeSlot('${dateStr}', '${timeStr}', ${practId})`;
@@ -900,14 +951,26 @@ async function loadMonthGrid() {
     // Adjust for Monday start (0 = Monday)
     const startOffset = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
     
-    // Load appointments and availability for the month
+    // Check cache first
+    const cacheKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const cached = loadedMonthsCache.get(cacheKey);
+    
+    // Load appointments and availability for the month (and next month for buffer)
     const monthDates = [];
     for (let i = 1; i <= daysInMonth; i++) {
         monthDates.push(new Date(year, month, i));
     }
     
-    const availabilityData = {};
-    const appointmentsData = {};
+    // Also load next month dates for buffer
+    const nextMonthDates = [];
+    const nextMonth = month + 1;
+    const nextYear = nextMonth > 11 ? year + 1 : year;
+    const nextMonthActual = nextMonth > 11 ? 0 : nextMonth;
+    const nextMonthLastDay = new Date(nextYear, nextMonthActual + 1, 0);
+    for (let i = 1; i <= nextMonthLastDay.getDate(); i++) {
+        nextMonthDates.push(new Date(nextYear, nextMonthActual, i));
+    }
+    
     const practitionerColors = {};
     
     // Get practitioner colors
@@ -915,13 +978,47 @@ async function loadMonthGrid() {
     practitionerColors[{{ practitioner.id }}] = '{{ practitioner.calendar_color or "#10b981" }}';
     {% endfor %}
     
-    // Load appointments
+    // Use cache if available
+    let appointmentsData = {};
+    let availabilityData = {};
+    const practitionerInfo = {}; // Cache practitioner info {id: {name, color}}
+    
+    // Load practitioner info first (needed for both cached and fresh data)
     try {
-        const eventsResponse = await fetch('/api/calendar/events');
-        const eventsData = await eventsResponse.json();
-        if (eventsData.success) {
-            console.log(`📅 Month view: Loaded ${eventsData.events.length} appointments from API`);
-            eventsData.events.forEach(event => {
+        const practitionersResponse = await fetch('/api/users/practitioners');
+        const practitionersData = await practitionersResponse.json();
+        if (practitionersData.success) {
+            practitionersData.users.forEach(pract => {
+                if (activePractitioners.has(pract.id.toString())) {
+                    practitionerInfo[pract.id] = {
+                        name: pract.name,
+                        color: pract.color || '#10b981'
+                    };
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error loading practitioners:', error);
+    }
+    
+    if (cached) {
+        console.log(`✅ Using cached data for ${cacheKey}`);
+        appointmentsData = cached.appointments || {};
+        availabilityData = cached.availability || {};
+    } else {
+        // Calculate date range for current month (with buffer for next month)
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 2, 0); // End of next month
+        const startDateStr = monthStart.toISOString().split('T')[0];
+        const endDateStr = monthEnd.toISOString().split('T')[0];
+        
+        // Load appointments with date range filtering
+        try {
+            const eventsResponse = await fetch(`/api/calendar/events?start=${startDateStr}&end=${endDateStr}`);
+            const eventsData = await eventsResponse.json();
+            if (eventsData.success) {
+                console.log(`📅 Month view: Loaded ${eventsData.events.length} appointments from API (${startDateStr} to ${endDateStr})`);
+                eventsData.events.forEach(event => {
                 const practId = event.extendedProps?.practitioner_id;
                 // Show appointments if no practitioners are selected OR if practitioner is in active set
                 const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
@@ -941,39 +1038,70 @@ async function loadMonthGrid() {
                     });
                 }
             });
-            console.log(`📊 Month view: Processed appointments for ${Object.keys(appointmentsData).length} dates`);
-        } else {
-            console.error('❌ API returned error:', eventsData.error || 'Unknown error');
-        }
-    } catch (error) {
-        console.error('❌ Error loading appointments:', error);
-        // Don't fail completely, just log the error and continue
-    }
-    
-    // Load availability for each day
-    if (activePractitioners.size > 0) {
-        for (const practitionerId of activePractitioners) {
-            for (const date of monthDates) {
-                const dateStr = date.toISOString().split('T')[0];
-                try {
-                    const availResponse = await fetch(`/api/calendar/availability/${practitionerId}?date=${dateStr}&duration=30`);
-                    const availData = await availResponse.json();
-                    if (availData.success && availData.available_slots.length > 0) {
-                        if (!availabilityData[dateStr]) availabilityData[dateStr] = [];
-                        availabilityData[dateStr].push({
-                            practitionerId: practitionerId,
-                            practitionerName: availData.practitioner || 'Practitioner',
-                            slotCount: availData.available_slots.length,
-                            color: practitionerColors[practitionerId] || '#10b981'
-                        });
-                    }
-                } catch (error) {
-                    console.error(`Error loading availability for ${dateStr}:`, error);
-                }
+                console.log(`📊 Month view: Processed appointments for ${Object.keys(appointmentsData).length} dates`);
+            } else {
+                console.error('❌ API returned error:', eventsData.error || 'Unknown error');
             }
+        } catch (error) {
+            console.error('❌ Error loading appointments:', error);
         }
-    } else {
-        console.warn('⚠️ No active practitioners selected - availability will not be loaded');
+        
+        // Load availability using batch API (much faster!)
+        if (activePractitioners.size > 0) {
+            const allDates = [...monthDates, ...nextMonthDates];
+            const dateStrings = allDates.map(d => d.toISOString().split('T')[0]);
+            const practitionerIds = Array.from(activePractitioners).map(id => parseInt(id));
+            
+            try {
+                const batchResponse = await fetch('/api/calendar/availability/batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        practitioner_ids: practitionerIds,
+                        dates: dateStrings,
+                        duration: 30
+                    })
+                });
+                
+                const batchData = await batchResponse.json();
+                if (batchData.success) {
+                    // Process batch availability data
+                    for (const [practId, datesData] of Object.entries(batchData.availability)) {
+                        for (const [dateStr, availInfo] of Object.entries(datesData)) {
+                            if (availInfo.available_slots && availInfo.available_slots.length > 0) {
+                                if (!availabilityData[dateStr]) availabilityData[dateStr] = [];
+                                availabilityData[dateStr].push({
+                                    practitionerId: parseInt(practId),
+                                    practitionerName: practitionerInfo[practId]?.name || 'Practitioner',
+                                    slotCount: availInfo.available_slots.length,
+                                    color: practitionerColors[practId] || '#10b981'
+                                });
+                            }
+                        }
+                    }
+                    console.log(`✅ Batch loaded availability for ${practitionerIds.length} practitioners across ${dateStrings.length} dates`);
+                }
+            } catch (error) {
+                console.error('Error loading batch availability:', error);
+            }
+        } else {
+            console.warn('⚠️ No active practitioners selected - availability will not be loaded');
+        }
+        
+        // Cache the loaded data
+        loadedMonthsCache.set(cacheKey, {
+            appointments: appointmentsData,
+            availability: availabilityData,
+            timestamp: Date.now()
+        });
+        
+        // Clean old cache entries (keep last 3 months)
+        if (loadedMonthsCache.size > 3) {
+            const oldestKey = Array.from(loadedMonthsCache.keys())[0];
+            loadedMonthsCache.delete(oldestKey);
+        }
     }
     
     // Build calendar HTML
@@ -2005,6 +2133,271 @@ function updateAppointmentStats(count) {
         statsElement.textContent = count || 0;
     }
 }
+
+// ============================================================================
+// CALENDAR SPEC IMPLEMENTATION
+// ============================================================================
+
+// Practitioner Color Mapping (from spec)
+const PRACTITIONER_COLORS = {
+    'David Brown': '#6A5ACD',      // Soft Purple
+    'Emma Williams': '#FF4E4E',    // Coral Red
+    'Lisa Anderson': '#FF69B4',    // Hot Pink
+    'Michael Chen': '#FFA500',     // Amber
+    'Sarah Johnson': '#00A86B'     // Teal Green
+};
+
+// Get practitioner color (with fallback to database color)
+function getPractitionerColor(practitionerName, dbColor) {
+    // Try exact match first
+    if (PRACTITIONER_COLORS[practitionerName]) {
+        return PRACTITIONER_COLORS[practitionerName];
+    }
+    
+    // Try partial match (first name + last name)
+    const nameParts = practitionerName.split(' ');
+    if (nameParts.length >= 2) {
+        const fullName = `${nameParts[0]} ${nameParts[1]}`;
+        if (PRACTITIONER_COLORS[fullName]) {
+            return PRACTITIONER_COLORS[fullName];
+        }
+    }
+    
+    // Fallback to database color or default
+    return dbColor || '#6A5ACD';
+}
+
+// Get practitioner initials
+function getPractitionerInitials(name) {
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+}
+
+// Get patient display name (initials or short name)
+function getPatientDisplay(patientName, isNew = false) {
+    if (!patientName) return 'Unknown';
+    
+    // If name is short enough, show full name
+    if (patientName.length <= 12) {
+        return (isNew ? '🆕 ' : '') + patientName;
+    }
+    
+    // Otherwise show initials
+    const parts = patientName.split(' ');
+    if (parts.length >= 2) {
+        return (isNew ? '🆕 ' : '') + (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return (isNew ? '🆕 ' : '') + patientName.substring(0, 2).toUpperCase();
+}
+
+// Create appointment badge HTML (90px x 32px pill)
+function createAppointmentBadge(appointment, practitionerColor) {
+    const practName = appointment.practitionerName || 'Unknown';
+    const practInitials = getPractitionerInitials(practName);
+    const patientName = appointment.patientName || 'Unknown';
+    const isNew = appointment.isNewPatient || false;
+    const patientDisplay = getPatientDisplay(patientName, isNew);
+    
+    // Get emoji indicators
+    let emojiIndicators = '';
+    if (appointment.isUrgent) emojiIndicators += '🚨';
+    if (appointment.isTelehealth) emojiIndicators += '💻';
+    if (appointment.isHomeVisit) emojiIndicators += '🚗';
+    if (appointment.isLongConsultation) emojiIndicators += '⏱️';
+    if (appointment.isOverlapping) emojiIndicators += '🔁';
+    
+    // Determine state class
+    let stateClass = '';
+    if (appointment.status === 'cancelled') stateClass = 'cancelled';
+    else if (appointment.status === 'no-show') stateClass = 'no-show';
+    else if (appointment.status === 'late') stateClass = 'late';
+    
+    return `
+        <div class="appointment-badge ${stateClass}" 
+             style="background-color: ${practitionerColor};"
+             data-appointment-id="${appointment.appointmentId}"
+             data-patient-id="${appointment.patientId}"
+             onclick="event.stopPropagation(); openAppointmentDrawer(${appointment.appointmentId})"
+             onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(appointment).replace(/"/g, '&quot;')})"
+             onmouseleave="hideTooltip()">
+            <div class="practitioner-initials">${practInitials}${emojiIndicators ? ' ' + emojiIndicators : ''}</div>
+            <div class="patient-info">${patientDisplay}</div>
+        </div>
+    `;
+}
+
+// Show appointment tooltip
+let currentTooltip = null;
+function showAppointmentTooltip(event, appointment) {
+    // Remove existing tooltip
+    if (currentTooltip) {
+        currentTooltip.remove();
+    }
+    
+    const practName = appointment.practitionerName || 'Unknown';
+    const practitionerColor = getPractitionerColor(practName, appointment.practitionerColor) || '#6A5ACD';
+    const patientName = appointment.patientName || 'Unknown';
+    const appointmentType = appointment.appointmentType || 'Standard';
+    const duration = appointment.duration || '30 min';
+    const notes = appointment.notes || 'No notes';
+    const startTime = appointment.startTime || '';
+    const endTime = appointment.endTime || '';
+    
+    const tooltip = document.createElement('div');
+    tooltip.className = 'appointment-tooltip';
+    tooltip.innerHTML = `
+        <div class="practitioner-header">
+            <div class="color-strip" style="background-color: ${practitionerColor};"></div>
+            <div>
+                <div style="font-weight: 600; color: ${practitionerColor};">${practName}</div>
+            </div>
+        </div>
+        <div class="patient-name">👤 ${patientName}${appointment.isNewPatient ? ' <span class="emoji-indicator">🆕</span>' : ''}</div>
+        <div class="appointment-details">
+            <div>📅 ${startTime}–${endTime}</div>
+            <div>⏱️ ${duration}</div>
+            <div>📝 ${notes.substring(0, 50)}${notes.length > 50 ? '...' : ''}</div>
+        </div>
+        <div class="tooltip-actions">
+            <button class="tooltip-button primary" onclick="window.location.href='/patients/${appointment.patientId}'">View Patient</button>
+            <button class="tooltip-button" onclick="editAppointment(${appointment.appointmentId})">Edit</button>
+            <button class="tooltip-button" onclick="cancelAppointment(${appointment.appointmentId})">Cancel</button>
+        </div>
+    `;
+    
+    document.body.appendChild(tooltip);
+    currentTooltip = tooltip;
+    
+    // Position tooltip
+    const rect = event.target.getBoundingClientRect();
+    tooltip.style.left = (rect.left + rect.width / 2 - 160) + 'px';
+    tooltip.style.top = (rect.top - tooltip.offsetHeight - 10) + 'px';
+    
+    // Show with animation
+    setTimeout(() => tooltip.classList.add('show'), 10);
+}
+
+// Hide tooltip
+function hideTooltip() {
+    if (currentTooltip) {
+        currentTooltip.classList.remove('show');
+        setTimeout(() => {
+            if (currentTooltip) {
+                currentTooltip.remove();
+                currentTooltip = null;
+            }
+        }, 120);
+    }
+}
+
+// Open appointment side drawer
+function openAppointmentDrawer(appointmentId) {
+    const drawer = document.getElementById('appointmentDrawer');
+    if (drawer) {
+        loadAppointmentDetails(appointmentId);
+        drawer.classList.add('open');
+    }
+}
+
+// Close drawer
+function closeAppointmentDrawer() {
+    const drawer = document.getElementById('appointmentDrawer');
+    if (drawer) {
+        drawer.classList.remove('open');
+    }
+}
+
+// Show available slot tooltip
+function showAvailableSlotTooltip(event, dateStr, timeStr, practitionerIds, practitionerNames) {
+    if (currentTooltip) {
+        currentTooltip.remove();
+    }
+    
+    const tooltip = document.createElement('div');
+    tooltip.className = 'appointment-tooltip';
+    tooltip.innerHTML = `
+        <div class="practitioner-header">
+            <div class="color-strip" style="background-color: #00A86B;"></div>
+            <div>
+                <div style="font-weight: 600; color: #00A86B;">Available Slot 🟢</div>
+            </div>
+        </div>
+        <div class="appointment-details">
+            <div>📅 ${dateStr} at ${timeStr}</div>
+            <div>👥 ${practitionerNames}</div>
+        </div>
+        <div class="tooltip-actions">
+            <button class="tooltip-button primary" onclick="selectTimeSlot('${dateStr}', '${timeStr}', ${practitionerIds[0] || 'null'})">Book Patient</button>
+            <button class="tooltip-button" onclick="toggleBlockSlot('${dateStr}', '${timeStr}')">Block Time</button>
+            <button class="tooltip-button" onclick="addNoteToSlot('${dateStr}', '${timeStr}')">Add Note</button>
+        </div>
+    `;
+    
+    document.body.appendChild(tooltip);
+    currentTooltip = tooltip;
+    
+    const rect = event.target.getBoundingClientRect();
+    tooltip.style.left = (rect.left + rect.width / 2 - 160) + 'px';
+    tooltip.style.top = (rect.top - tooltip.offsetHeight - 10) + 'px';
+    
+    setTimeout(() => tooltip.classList.add('show'), 10);
+}
+
+// Load appointment details for drawer
+async function loadAppointmentDetails(appointmentId) {
+    try {
+        const response = await fetch(`/api/appointments/${appointmentId}`);
+        const data = await response.json();
+        if (data.success && data.appointment) {
+            const apt = data.appointment;
+            const drawerContent = document.getElementById('appointmentDrawerContent');
+            drawerContent.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Patient</h4>
+                        <p class="text-gray-800">${apt.patient_name || 'Unknown'}</p>
+                        <a href="/patients/${apt.patient_id}" class="text-blue-600 hover:underline text-sm">View Patient →</a>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Practitioner</h4>
+                        <p class="text-gray-800">${apt.practitioner_name || 'Unknown'}</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Time</h4>
+                        <p class="text-gray-800">${apt.start_time || ''} - ${apt.end_time || ''}</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Notes</h4>
+                        <p class="text-gray-600">${apt.notes || 'No notes'}</p>
+                    </div>
+                    <div class="flex gap-2 pt-4 border-t">
+                        <button onclick="editAppointment(${appointmentId})" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Edit</button>
+                        <button onclick="cancelAppointment(${appointmentId})" class="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Cancel</button>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading appointment details:', error);
+        document.getElementById('appointmentDrawerContent').innerHTML = '<p class="text-red-500">Error loading appointment details</p>';
+    }
+}
 </script>
+
+<!-- Appointment Side Drawer -->
+<div id="appointmentDrawer" class="appointment-drawer">
+    <div class="drawer-header">
+        <h3 class="text-lg font-semibold">Appointment Details</h3>
+        <button onclick="closeAppointmentDrawer()" class="text-gray-500 hover:text-gray-700">
+            <i class="fas fa-times text-xl"></i>
+        </button>
+    </div>
+    <div class="drawer-content" id="appointmentDrawerContent">
+        <p class="text-gray-500">Loading...</p>
+    </div>
+</div>
 
 {% endblock %}
