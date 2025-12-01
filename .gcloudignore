@@ -1,26 +1,36 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Git
 .git
 .gitignore
-
-# Misc
-.DS_Store
-*.swp
-*~.bak
-*~.tmp
-
-# Project specific
+__pycache__/
+*.pyc
+venv/
+env/
+.env
+*.env
+ios-app/
 instance/
-tokens/
-capturecare.db
-capturecare.env
+tests/
+docs/
+node_modules/
+static/dist/
+*.log
+*.sqlite
+*.db
+DS_Store
+.DS_Store
+.cursor/
+.idea/
+.vscode/
+Pitch Deck/
+Twilio Integration/
+cloud-sql-proxy
+backup_to_github.sh
+setup_venv.sh
+start_server.sh
+test_smtp.py
+create_admin_job.py
+capturecare/instance/
+capturecare/tokens/
+capturecare/capturecare.db
+attached_assets/
+scripts/
+migrations/

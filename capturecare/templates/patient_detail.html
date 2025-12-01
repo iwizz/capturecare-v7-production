@@ -2569,17 +2569,36 @@ async function sendWithingsEmailToPatient() {
 async function loadAppointments() {
     try {
         const response = await fetch(`/patients/{{ patient.id }}/appointments`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const appointments = await response.json();
         
         const listElement = document.getElementById('appointmentsList');
+        if (!listElement) {
+            console.warn('appointmentsList element not found');
+            return;
+        }
         
-        if (appointments.length === 0) {
+        if (!Array.isArray(appointments) || appointments.length === 0) {
             listElement.innerHTML = '<p class="text-gray-500 text-center py-4">No appointments scheduled</p>';
             return;
         }
         
-        const upcoming = appointments.filter(appt => new Date(appt.start_time) >= new Date());
-        const past = appointments.filter(appt => new Date(appt.start_time) < new Date());
+        const upcoming = appointments.filter(appt => {
+            try {
+                return appt.start_time && new Date(appt.start_time) >= new Date();
+            } catch {
+                return false;
+            }
+        });
+        const past = appointments.filter(appt => {
+            try {
+                return appt.start_time && new Date(appt.start_time) < new Date();
+            } catch {
+                return false;
+            }
+        });
         
         let html = '';
         
@@ -2601,8 +2620,11 @@ async function loadAppointments() {
         
         listElement.innerHTML = html || '<p class="text-gray-500 text-center py-4">No appointments</p>';
     } catch (error) {
-        console.error('Error loading appointments:', error);
-        document.getElementById('appointmentsList').innerHTML = '<p class="text-red-500 text-center py-4">Error loading appointments</p>';
+        console.error('Error loading appointments:', error?.message || error);
+        const listElement = document.getElementById('appointmentsList');
+        if (listElement) {
+            listElement.innerHTML = '<p class="text-red-500 text-center py-4">Error loading appointments</p>';
+        }
     }
 }
 
@@ -4747,11 +4769,18 @@ function linkify(text) {
 async function loadNotes() {
     try {
         const response = await fetch(`/api/patients/{{ patient.id }}/notes`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const data = await response.json();
         
         const notesList = document.getElementById('notesList');
+        if (!notesList) {
+            console.warn('notesList element not found');
+            return;
+        }
         
-        if (data.success && data.notes.length > 0) {
+        if (data.success && data.notes && data.notes.length > 0) {
             notesList.innerHTML = data.notes.map(note => {
                 const createdDate = new Date(note.created_at).toLocaleString('en-AU', {
                     timeZone: 'Australia/Sydney',

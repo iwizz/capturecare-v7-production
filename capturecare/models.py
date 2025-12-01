@@ -213,6 +213,14 @@ class Appointment(db.Model):
     google_calendar_event_id = db.Column(db.String(200), nullable=True)
     outlook_calendar_event_id = db.Column(db.String(200), nullable=True)
     
+    # Reminder tracking fields
+    reminder_24hr_sent = db.Column(db.Boolean, default=False)
+    reminder_24hr_sent_at = db.Column(db.DateTime, nullable=True)
+    reminder_day_before_sent = db.Column(db.Boolean, default=False)
+    reminder_day_before_sent_at = db.Column(db.DateTime, nullable=True)
+    reminder_1hr_sent = db.Column(db.Boolean, default=False)
+    reminder_1hr_sent_at = db.Column(db.DateTime, nullable=True)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

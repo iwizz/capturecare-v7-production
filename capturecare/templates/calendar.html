@@ -299,23 +299,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 const startStr = info.startStr;
                 const endStr = info.endStr;
                 fetch(`/api/calendar/events?start=${startStr}&end=${endStr}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response || !response.ok) {
+                            const status = response?.status || 'Unknown';
+                            const statusText = response?.statusText || 'Unknown';
+                            throw new Error(`HTTP ${status}: ${statusText}`);
+                        }
+                        return response.json().catch(() => {
+                            throw new Error('Invalid JSON response from server');
+                        });
+                    })
                     .then(data => {
-                        if (data.success) {
+                        if (data && data.success && data.events) {
                             // Filter events based on active practitioners
                             const filteredEvents = data.events.filter(event => {
                                 if (activePractitioners.size === 0) return true;
-                                const practId = event.extendedProps.practitioner_id;
+                                const practId = event.extendedProps?.practitioner_id;
                                 return practId && activePractitioners.has(practId.toString());
                             });
                             successCallback(filteredEvents);
                         } else {
-                            failureCallback();
+                            console.warn('API returned non-success or missing events:', data?.error || data?.message || 'Unknown error');
+                            successCallback([]); // Return empty array instead of calling failureCallback
                         }
                     })
                     .catch(error => {
-                        console.error('Error loading events:', error);
-                        failureCallback();
+                        console.error('Error loading events:', error?.message || error || 'Unknown error');
+                        successCallback([]); // Return empty array to prevent FullCalendar errors
                     });
             },
             // Source 2: Availability blocks (background)
@@ -335,23 +345,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 fetch(`/api/calendar/availability-blocks?${params}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response || !response.ok) {
+                            const status = response?.status || 'Unknown';
+                            const statusText = response?.statusText || 'Unknown';
+                            throw new Error(`HTTP ${status}: ${statusText}`);
+                        }
+                        return response.json().catch(() => {
+                            throw new Error('Invalid JSON response from server');
+                        });
+                    })
                     .then(data => {
-                        if (data.success) {
+                        if (data && data.success && data.blocks) {
                             // Filter blocks by active practitioners
                             const filteredBlocks = data.blocks.filter(block => {
                                 if (activePractitioners.size === 0) return true;
-                                const practId = block.extendedProps.practitioner_id;
+                                const practId = block.extendedProps?.practitioner_id;
                                 return practId && activePractitioners.has(practId.toString());
                             });
                             successCallback(filteredBlocks);
                         } else {
-                            failureCallback();
+                            console.warn('API returned non-success or missing blocks:', data?.error || data?.message || 'Unknown error');
+                            successCallback([]); // Return empty array instead of calling failureCallback
                         }
                     })
                     .catch(error => {
-                        console.error('Error loading availability blocks:', error);
-                        failureCallback();
+                        console.error('Error loading availability blocks:', error?.message || error || 'Unknown error');
+                        successCallback([]); // Return empty array to prevent FullCalendar errors
                     });
             }
         ],
@@ -393,15 +413,44 @@ const loadedWeeksCache = new Map(); // key: "YYYY-WW", value: {appointments, ava
 
 // Initialize all practitioners as active on page load
 document.addEventListener('DOMContentLoaded', function() {
-    const buttons = document.querySelectorAll('.practitioner-toggle');
-    buttons.forEach(button => {
-        const practitionerId = button.getAttribute('data-practitioner-id');
-        activePractitioners.add(practitionerId);
-    });
-    
-    // Initialize month view by default
-    setMonthStart(new Date());
-    loadMonthGrid();
+    // Load practitioners first, then initialize active set
+    fetch('/api/users/practitioners')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.users) {
+                // Add all practitioners to active set
+                data.users.forEach(pract => {
+                    activePractitioners.add(pract.id.toString());
+                });
+                console.log(`✅ Initialized ${activePractitioners.size} active practitioners`);
+            }
+            
+            // Also check for practitioner toggle buttons (fallback)
+            const buttons = document.querySelectorAll('.practitioner-toggle');
+            buttons.forEach(button => {
+                const practitionerId = button.getAttribute('data-practitioner-id');
+                if (practitionerId) {
+                    activePractitioners.add(practitionerId);
+                }
+            });
+            
+            // Initialize month view by default
+            setMonthStart(new Date());
+            loadMonthGrid();
+        })
+        .catch(error => {
+            console.error('Error loading practitioners:', error);
+            // Still try to load calendar even if practitioner load fails
+            const buttons = document.querySelectorAll('.practitioner-toggle');
+            buttons.forEach(button => {
+                const practitionerId = button.getAttribute('data-practitioner-id');
+                if (practitionerId) {
+                    activePractitioners.add(practitionerId);
+                }
+            });
+            setMonthStart(new Date());
+            loadMonthGrid();
+        });
 });
 
 // Week Grid View Functions
@@ -572,6 +621,9 @@ async function loadWeekGrid() {
     // Also load full appointment details for patient names with date range
     try {
         const eventsResponse = await fetch(`/api/calendar/events?start=${weekStartStr}&end=${weekEndStr}`);
+        if (!eventsResponse.ok) {
+            throw new Error(`HTTP ${eventsResponse.status}: ${eventsResponse.statusText}`);
+        }
         const eventsData = await eventsResponse.json();
         if (eventsData.success) {
             console.log(`📅 Week view: Loaded ${eventsData.events.length} appointments from API`);
@@ -619,36 +671,57 @@ async function loadWeekGrid() {
     }
     
     // Load blocked slots (exceptions) for each practitioner
+    // Only load once per practitioner (not per date)
+    const loadedPractitioners = new Set();
     for (const practitionerId of activePractitioners) {
-        for (const date of weekDates) {
-            const dateStr = date.toISOString().split('T')[0];
-            
-            try {
-                const exceptionsResponse = await fetch(`/api/availability-exceptions?user_id=${practitionerId}`);
-                const exceptionsData = await exceptionsResponse.json();
-                if (exceptionsData.success) {
-                    exceptionsData.exceptions.forEach(ex => {
-                        if (ex.exception_date === dateStr && !ex.is_all_day) {
-                            if (!blockedSlots[dateStr]) blockedSlots[dateStr] = [];
-                            blockedSlots[dateStr].push({
-                                start: ex.start_time,
-                                end: ex.end_time,
-                                practitionerId: practitionerId
-                            });
-                        }
-                    });
-                }
-            } catch (error) {
-                console.error(`Error loading exceptions for ${dateStr}:`, error);
+        if (loadedPractitioners.has(practitionerId)) continue;
+        loadedPractitioners.add(practitionerId);
+        
+        try {
+            const exceptionsResponse = await fetch(`/api/availability-exceptions?user_id=${practitionerId}`);
+            if (!exceptionsResponse.ok) {
+                console.warn(`Failed to load exceptions for practitioner ${practitionerId}: HTTP ${exceptionsResponse.status}`);
+                continue;
             }
-            
+            const exceptionsData = await exceptionsResponse.json();
+            if (exceptionsData.success && exceptionsData.exceptions) {
+                exceptionsData.exceptions.forEach(ex => {
+                    // Extract date from exception_date (could be ISO string or date object)
+                    let exDateStr = ex.exception_date;
+                    if (exDateStr && exDateStr.includes('T')) {
+                        exDateStr = exDateStr.split('T')[0];
+                    }
+                    
+                    // Check if this exception falls within our week
+                    if (weekDates.some(d => d.toISOString().split('T')[0] === exDateStr) && !ex.is_all_day) {
+                        if (!blockedSlots[exDateStr]) blockedSlots[exDateStr] = [];
+                        blockedSlots[exDateStr].push({
+                            start: ex.start_time,
+                            end: ex.end_time,
+                            practitionerId: practitionerId
+                        });
+                    }
+                });
+            }
+        } catch (error) {
+            console.error(`Error loading exceptions for practitioner ${practitionerId}:`, error?.message || error);
         }
     }
     
     // Load availability using batch API for week view
+    // If no practitioners selected, load all practitioners
+    let practitionerIdsToLoad = [];
     if (activePractitioners.size > 0) {
+        practitionerIdsToLoad = Array.from(activePractitioners).map(id => parseInt(id)).filter(id => !isNaN(id));
+    } else {
+        // Load all practitioners if none selected
+        if (Object.keys(practitionerInfo).length > 0) {
+            practitionerIdsToLoad = Object.keys(practitionerInfo).map(id => parseInt(id)).filter(id => !isNaN(id));
+        }
+    }
+    
+    if (practitionerIdsToLoad.length > 0) {
         const weekDateStrings = weekDates.map(d => d.toISOString().split('T')[0]);
-        const practitionerIds = Array.from(activePractitioners).map(id => parseInt(id));
         
         try {
             const batchResponse = await fetch('/api/calendar/availability/batch', {
@@ -657,14 +730,14 @@ async function loadWeekGrid() {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    practitioner_ids: practitionerIds,
+                    practitioner_ids: practitionerIdsToLoad,
                     dates: weekDateStrings,
                     duration: 30
                 })
             });
             
             const batchData = await batchResponse.json();
-            if (batchData.success) {
+            if (batchData.success && batchData.availability) {
                 // Process batch availability data
                 for (const [practId, datesData] of Object.entries(batchData.availability)) {
                     for (const [dateStr, availInfo] of Object.entries(datesData)) {
@@ -684,10 +757,14 @@ async function loadWeekGrid() {
                     }
                 }
                 console.log(`✅ Batch loaded availability for week view`);
+            } else {
+                console.warn('⚠️ Batch availability API returned success=false:', batchData.error || 'Unknown error');
             }
         } catch (error) {
-            console.error('Error loading batch availability:', error);
+            console.error('❌ Error loading batch availability:', error);
         }
+    } else {
+        console.warn('⚠️ No practitioners to load availability for in week view');
     }
     
     // Build grid HTML
@@ -1047,10 +1124,38 @@ async function loadMonthGrid() {
         }
         
         // Load availability using batch API (much faster!)
+        // If no practitioners selected, load all practitioners
+        let practitionerIdsToLoad = [];
         if (activePractitioners.size > 0) {
+            practitionerIdsToLoad = Array.from(activePractitioners).map(id => parseInt(id)).filter(id => !isNaN(id));
+        } else {
+            // Load all practitioners if none selected
+            console.log('⚠️ No practitioners selected, loading all practitioners');
+            if (Object.keys(practitionerInfo).length > 0) {
+                practitionerIdsToLoad = Object.keys(practitionerInfo).map(id => parseInt(id)).filter(id => !isNaN(id));
+            } else {
+                // Fallback: try to get practitioners from API
+                try {
+                    const practResponse = await fetch('/api/users/practitioners');
+                    const practData = await practResponse.json();
+                    if (practData.success && practData.users) {
+                        practData.users.forEach(pract => {
+                            practitionerInfo[pract.id] = {
+                                name: pract.name,
+                                color: pract.color || '#10b981'
+                            };
+                            practitionerIdsToLoad.push(pract.id);
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading practitioners for availability:', error);
+                }
+            }
+        }
+        
+        if (practitionerIdsToLoad.length > 0) {
             const allDates = [...monthDates, ...nextMonthDates];
             const dateStrings = allDates.map(d => d.toISOString().split('T')[0]);
-            const practitionerIds = Array.from(activePractitioners).map(id => parseInt(id));
             
             try {
                 const batchResponse = await fetch('/api/calendar/availability/batch', {
@@ -1059,14 +1164,14 @@ async function loadMonthGrid() {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        practitioner_ids: practitionerIds,
+                        practitioner_ids: practitionerIdsToLoad,
                         dates: dateStrings,
                         duration: 30
                     })
                 });
                 
                 const batchData = await batchResponse.json();
-                if (batchData.success) {
+                if (batchData.success && batchData.availability) {
                     // Process batch availability data
                     for (const [practId, datesData] of Object.entries(batchData.availability)) {
                         for (const [dateStr, availInfo] of Object.entries(datesData)) {
@@ -1081,13 +1186,15 @@ async function loadMonthGrid() {
                             }
                         }
                     }
-                    console.log(`✅ Batch loaded availability for ${practitionerIds.length} practitioners across ${dateStrings.length} dates`);
+                    console.log(`✅ Batch loaded availability for ${practitionerIdsToLoad.length} practitioners across ${dateStrings.length} dates`);
+                } else {
+                    console.warn('⚠️ Batch availability API returned success=false:', batchData.error || 'Unknown error');
                 }
             } catch (error) {
-                console.error('Error loading batch availability:', error);
+                console.error('❌ Error loading batch availability:', error);
             }
         } else {
-            console.warn('⚠️ No active practitioners selected - availability will not be loaded');
+            console.warn('⚠️ No practitioners to load availability for');
         }
         
         // Cache the loaded data
@@ -1347,19 +1454,37 @@ function togglePractitioner(practitionerId) {
         activePractitioners.delete(practitionerId.toString());
         button.classList.remove('active');
         button.style.opacity = '0.5';
-        button.querySelector('.fa-check').style.display = 'none';
+        const checkIcon = button.querySelector('.fa-check');
+        if (checkIcon) checkIcon.style.display = 'none';
     } else {
         // Activate
         activePractitioners.add(practitionerId.toString());
         button.classList.add('active');
         button.style.opacity = '1';
-        button.querySelector('.fa-check').style.display = 'inline';
+        const checkIcon = button.querySelector('.fa-check');
+        if (checkIcon) checkIcon.style.display = 'inline';
     }
     
-    // Refetch calendar events and availability blocks
-    if (calendar) calendar.refetchEvents();
-    if (currentView === 'week') loadWeekGrid();
-    if (currentView === 'month') loadMonthGrid();
+    // Clear caches to force reload with new filters
+    loadedMonthsCache.clear();
+    loadedWeeksCache.clear();
+    
+    // Refetch calendar events and availability blocks for all views
+    if (calendar) {
+        calendar.refetchEvents();
+    }
+    
+    // Reload current view with updated filters
+    if (currentView === 'week') {
+        loadWeekGrid();
+    } else if (currentView === 'month') {
+        loadMonthGrid();
+    } else if (currentView === 'day') {
+        // Day view uses FullCalendar, refetchEvents should handle it
+        if (calendar) calendar.refetchEvents();
+    }
+    
+    console.log(`✅ Practitioner filter updated. Active practitioners: ${Array.from(activePractitioners).join(', ')}`);
 }
 
 // Keep for backward compatibility but now uses activePractitioners
@@ -1936,8 +2061,68 @@ function initializeDragAndDrop() {
         }
     }, false);
     
-    // Add drop handler
-    newContainer.addEventListener('drop', function(e) {
+// Helper functions for Quick Actions
+function toggleBlockSlot(date, time) {
+    // TODO: Implement block slot logic
+    alert(`Block time slot at ${date} ${time}? This feature is coming soon.`);
+}
+
+function addNoteToSlot(date, time) {
+    const note = prompt("Enter note for this slot:");
+    if (note) {
+        // TODO: Save note logic
+        alert(`Note added: ${note}`);
+    }
+}
+
+function selectTimeSlot(date, time, practitionerId) {
+    // Redirect to booking page with pre-filled data
+    window.location.href = `/appointments/book?date=${date}&time=${time}&practitioner=${practitionerId || ''}`;
+}
+
+function sendSMSPrompt(appointmentId) {
+    const message = prompt("Enter SMS message to patient:");
+    if (message) {
+        // Call API to send SMS
+        fetch(`/api/appointments/${appointmentId}/send-sms`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message: message })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) alert('SMS sent successfully');
+            else alert('Error sending SMS: ' + (data.error || 'Unknown error'));
+        })
+        .catch(err => alert('Error sending SMS'));
+    }
+}
+
+function markAppointmentLate(appointmentId) {
+    const delay = prompt("How many minutes late is the practitioner running?", "10");
+    if (delay) {
+        // TODO: Call API to update status and send SMS
+        alert(`Marked late by ${delay} minutes. SMS would be sent.`);
+        // Optimistic update
+        const badge = document.querySelector(`.appointment-badge[data-appointment-id="${appointmentId}"]`);
+        if (badge) badge.classList.add('late');
+    }
+}
+
+// Check for conflicts before moving
+async function checkConflict(appointmentId, newDate, newTime) {
+    try {
+        const response = await fetch(`/api/calendar/check-conflict?appointment_id=${appointmentId}&date=${newDate}&time=${newTime}`);
+        const data = await response.json();
+        return data; // Expect { conflict: boolean, message: string }
+    } catch (e) {
+        console.error("Error checking conflict", e);
+        return { conflict: false }; // Fail safe? Or fail secure?
+    }
+}
+
+// Updated Drop Handler with Conflict Check
+    newContainer.addEventListener('drop', async function(e) {
         e.preventDefault();
         e.stopPropagation();
         
@@ -1947,30 +2132,63 @@ function initializeDragAndDrop() {
         }
         
         const cell = e.target.closest('td[data-date][data-time]');
-        if (cell && cell.dataset.available === 'true' && cell.dataset.booked !== 'true') {
+        if (cell) {
+            // Remove highlight
+            document.querySelectorAll('.drop-zone-active').forEach(el => {
+                el.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
+            });
+
             const newDate = cell.dataset.date;
             const newTime = cell.dataset.time;
             
-            console.log('Dropping appointment', draggedAppointment.id, 'to', newDate, newTime);
+            // Check for conflict first
+            const conflictResult = await checkConflict(draggedAppointment.id, newDate, newTime);
             
-            // Show SMS notification popup
-            showSMSNotificationPopup(draggedAppointment.id, newDate, newTime);
-        } else {
-            console.log('Invalid drop zone');
+            if (conflictResult.conflict) {
+                showConflictModal(conflictResult.message, () => {
+                     // On Override
+                     showSMSNotificationPopup(draggedAppointment.id, newDate, newTime);
+                }, () => {
+                     // On Cancel - do nothing, drag reverts
+                     console.log('Drop cancelled due to conflict');
+                });
+            } else {
+                // No conflict, proceed
+                showSMSNotificationPopup(draggedAppointment.id, newDate, newTime);
+            }
         }
         
-        // Clean up
-        document.querySelectorAll('.drop-zone-active').forEach(el => {
-            el.classList.remove('drop-zone-active', 'ring-2', 'ring-blue-400', 'bg-blue-100');
-        });
-        
-        const appointmentId = draggedAppointment.id;
         draggedAppointment = null;
         draggedElement = null;
-        
-        console.log('Drop complete for appointment', appointmentId);
     }, false);
 }
+
+function showConflictModal(message, onOverride, onCancel) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-2xl max-w-md w-full p-6 border-l-4 border-red-500">
+            <h3 class="text-xl font-bold text-gray-900 mb-2">⚠️ Conflict Detected</h3>
+            <p class="text-gray-600 mb-6">${message}</p>
+            <div class="flex justify-end gap-3">
+                <button id="btn-cancel-conflict" class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Choose Another Time</button>
+                <button id="btn-override-conflict" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Override</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    document.getElementById('btn-cancel-conflict').onclick = () => {
+        modal.remove();
+        if (onCancel) onCancel();
+    };
+    
+    document.getElementById('btn-override-conflict').onclick = () => {
+        modal.remove();
+        if (onOverride) onOverride();
+    };
+}
+
 
 // SMS Notification Popup
 function showSMSNotificationPopup(appointmentId, newDate, newTime) {
@@ -2199,17 +2417,31 @@ function createAppointmentBadge(appointment, practitionerColor) {
     const practInitials = getPractitionerInitials(practName);
     const patientName = appointment.patientName || 'Unknown';
     const isNew = appointment.isNewPatient || false;
+    
+    // Bottom line content: Patient initials/name, optionally prepended with 🆕
+    // Spec: "If new patient → prepend: 🆕" and "Bottom line: Patient initials OR optional: Full name"
+    // We use getPatientDisplay which returns "🆕 JS" or "🆕 John Smith"
+    // We strip existing emojis from getPatientDisplay if we are adding them manually, 
+    // BUT getPatientDisplay puts 🆕 at the start, which matches the spec "prepend".
+    // However, the spec also says "New patient 🆕 Badge bottom".
+    // Let's use getPatientDisplay but without the emoji if we want to control it more, 
+    // or just use it as is since it puts it at the start of the string which is the bottom line.
+    // Actually, getPatientDisplay adds '🆕 ' prefix.
     const patientDisplay = getPatientDisplay(patientName, isNew);
     
-    // Get emoji indicators
-    let emojiIndicators = '';
-    if (appointment.isUrgent) emojiIndicators += '🚨';
-    if (appointment.isTelehealth) emojiIndicators += '💻';
-    if (appointment.isHomeVisit) emojiIndicators += '🚗';
-    if (appointment.isLongConsultation) emojiIndicators += '⏱️';
-    if (appointment.isOverlapping) emojiIndicators += '🔁';
+    // Indicators
+    let topRightIcons = '';
+    if (appointment.isUrgent) topRightIcons += '<span class="indicator-icon">🚨</span>';
+    if (appointment.isTelehealth) topRightIcons += '<span class="indicator-icon">💻</span>';
+    if (appointment.isHomeVisit) topRightIcons += '<span class="indicator-icon">🚗</span>';
     
-    // Determine state class
+    let bottomLeftIcons = '';
+    if (appointment.isLongConsultation) bottomLeftIcons += '<span class="indicator-icon">⏱️</span>';
+    
+    let bottomRightIcons = '';
+    if (appointment.isOverlapping) bottomRightIcons += '<span class="indicator-icon">🔁</span>';
+    
+    // State class
     let stateClass = '';
     if (appointment.status === 'cancelled') stateClass = 'cancelled';
     else if (appointment.status === 'no-show') stateClass = 'no-show';
@@ -2223,8 +2455,13 @@ function createAppointmentBadge(appointment, practitionerColor) {
              onclick="event.stopPropagation(); openAppointmentDrawer(${appointment.appointmentId})"
              onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(appointment).replace(/"/g, '&quot;')})"
              onmouseleave="hideTooltip()">
-            <div class="practitioner-initials">${practInitials}${emojiIndicators ? ' ' + emojiIndicators : ''}</div>
+            
+            <div class="practitioner-initials">${practInitials}</div>
             <div class="patient-info">${patientDisplay}</div>
+            
+            <div class="badge-top-right">${topRightIcons}</div>
+            <div class="badge-bottom-left">${bottomLeftIcons}</div>
+            <div class="badge-bottom-right">${bottomRightIcons}</div>
         </div>
     `;
 }

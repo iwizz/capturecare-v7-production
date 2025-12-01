@@ -1132,18 +1132,24 @@ def get_availability_exceptions():
         from models import AvailabilityException
         user_id = request.args.get('user_id')
         
-        # If user_id provided, use it; otherwise use current_user
+        # If user_id provided, use it; otherwise use current_user (if authenticated)
         if user_id:
-            user_id = int(user_id)
-            exceptions = AvailabilityException.query.filter_by(user_id=user_id).all()
-        else:
+            try:
+                user_id = int(user_id)
+                exceptions = AvailabilityException.query.filter_by(user_id=user_id).all()
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'Invalid user_id'}), 400
+        elif current_user.is_authenticated:
             exceptions = AvailabilityException.query.filter_by(user_id=current_user.id).all()
+        else:
+            # No user_id and not authenticated - return empty list
+            exceptions = []
         
         return jsonify({
             'success': True,
             'exceptions': [{
                 'id': e.id,
-                'exception_date': e.exception_date.isoformat(),
+                'exception_date': e.exception_date.isoformat() if hasattr(e.exception_date, 'isoformat') else str(e.exception_date),
                 'exception_type': e.exception_type,
                 'is_all_day': e.is_all_day,
                 'start_time': e.start_time.strftime('%H:%M') if e.start_time else None,
@@ -1152,8 +1158,10 @@ def get_availability_exceptions():
             } for e in exceptions]
         })
     except Exception as e:
-        logger.error(f"Error getting exceptions: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error getting exceptions: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/availability-exceptions', methods=['POST'])
 @optional_login_required
@@ -1261,14 +1269,15 @@ def api_get_practitioners():
             user_list.append({
                 'id': user.id,
                 'name': user.full_name,
-                'role': user.role,
-                'color': user.calendar_color
+                'role': user.role or '',
+                'color': user.calendar_color or '#3b82f6'
             })
         
         return jsonify({'success': True, 'users': user_list})
     except Exception as e:
-        logger.error(f"Error fetching practitioners: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error fetching practitioners: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/public-holidays')
 @optional_login_required
@@ -1326,8 +1335,8 @@ def api_public_holidays():
             'holidays': holidays
         })
     except Exception as e:
-        logger.error(f"Error fetching public holidays: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error fetching public holidays: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/team-availability')
 @optional_login_required
@@ -1338,7 +1347,12 @@ def api_team_availability():
         
         # Get user filter from query params
         user_ids_str = request.args.get('users', '')
-        user_ids = [int(uid) for uid in user_ids_str.split(',') if uid.strip()] if user_ids_str else []
+        user_ids = []
+        if user_ids_str:
+            try:
+                user_ids = [int(uid) for uid in user_ids_str.split(',') if uid.strip()]
+            except (ValueError, TypeError):
+                user_ids = []
         
         # Query patterns
         pattern_query = AvailabilityPattern.query.join(User).filter(User.is_active == True)
@@ -1357,35 +1371,43 @@ def api_team_availability():
         # Format patterns
         pattern_list = []
         for pattern in patterns:
-            pattern_list.append({
-                'id': pattern.id,
-                'user_id': pattern.user_id,
-                'user_name': pattern.user.full_name,
-                'user_color': pattern.user.calendar_color,
-                'title': pattern.title,
-                'frequency': pattern.frequency,
-                'weekdays': pattern.weekdays,
-                'start_time': pattern.start_time.strftime('%H:%M') if pattern.start_time else None,
-                'end_time': pattern.end_time.strftime('%H:%M') if pattern.end_time else None,
-                'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
-                'valid_until': pattern.valid_until.isoformat() if pattern.valid_until else None,
-                'is_active': pattern.is_active
-            })
+            try:
+                pattern_list.append({
+                    'id': pattern.id,
+                    'user_id': pattern.user_id,
+                    'user_name': pattern.user.full_name if pattern.user else 'Unknown',
+                    'user_color': pattern.user.calendar_color if pattern.user and pattern.user.calendar_color else '#3b82f6',
+                    'title': pattern.title or '',
+                    'frequency': pattern.frequency or 'weekly',
+                    'weekdays': pattern.weekdays or [],
+                    'start_time': pattern.start_time.strftime('%H:%M') if pattern.start_time else None,
+                    'end_time': pattern.end_time.strftime('%H:%M') if pattern.end_time else None,
+                    'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
+                    'valid_until': pattern.valid_until.isoformat() if pattern.valid_until else None,
+                    'is_active': pattern.is_active if hasattr(pattern, 'is_active') else True
+                })
+            except Exception as pattern_error:
+                logger.warning(f"Error formatting pattern {pattern.id}: {pattern_error}")
+                continue
         
         # Format exceptions
         exception_list = []
         for exception in exceptions:
-            exception_list.append({
-                'id': exception.id,
-                'user_id': exception.user_id,
-                'user_name': exception.user.full_name,
-                'date': exception.exception_date.isoformat(),
-                'exception_type': exception.exception_type,
-                'is_all_day': exception.is_all_day,
-                'start_time': exception.start_time.strftime('%H:%M') if exception.start_time else None,
-                'end_time': exception.end_time.strftime('%H:%M') if exception.end_time else None,
-                'reason': exception.reason
-            })
+            try:
+                exception_list.append({
+                    'id': exception.id,
+                    'user_id': exception.user_id,
+                    'user_name': exception.user.full_name if exception.user else 'Unknown',
+                    'exception_date': exception.exception_date.isoformat() if hasattr(exception.exception_date, 'isoformat') else str(exception.exception_date),
+                    'exception_type': exception.exception_type or 'blocked',
+                    'is_all_day': exception.is_all_day if hasattr(exception, 'is_all_day') else True,
+                    'start_time': exception.start_time.strftime('%H:%M') if exception.start_time else None,
+                    'end_time': exception.end_time.strftime('%H:%M') if exception.end_time else None,
+                    'reason': exception.reason or ''
+                })
+            except Exception as exception_error:
+                logger.warning(f"Error formatting exception {exception.id}: {exception_error}")
+                continue
         
         return jsonify({
             'success': True,
@@ -1393,8 +1415,9 @@ def api_team_availability():
             'exceptions': exception_list
         })
     except Exception as e:
-        logger.error(f"Error fetching team availability: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error fetching team availability: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/patients')
 @optional_login_required
@@ -2999,25 +3022,31 @@ def get_webhook_logs():
 @optional_login_required
 def list_appointments(patient_id):
     """Get all appointments for a patient"""
-    patient = Patient.query.get_or_404(patient_id)
-    appointments = Appointment.query.filter_by(patient_id=patient_id).order_by(Appointment.start_time.desc()).all()
-    
-    appointments_list = []
-    for appt in appointments:
-        appointments_list.append({
-            'id': appt.id,
-            'title': appt.title,
-            'type': appt.appointment_type,
-            'start_time': appt.start_time.isoformat(),
-            'end_time': appt.end_time.isoformat(),
-            'duration_minutes': appt.duration_minutes,
-            'location': appt.location,
-            'practitioner': appt.practitioner,
-            'notes': appt.notes,
-            'status': appt.status
-        })
-    
-    return jsonify(appointments_list)
+    try:
+        patient = Patient.query.get_or_404(patient_id)
+        appointments = Appointment.query.filter_by(patient_id=patient_id).order_by(Appointment.start_time.desc()).all()
+        
+        appointments_list = []
+        for appt in appointments:
+            appointments_list.append({
+                'id': appt.id,
+                'title': appt.title,
+                'appointment_type': appt.appointment_type,
+                'type': appt.appointment_type,  # Keep both for compatibility
+                'start_time': appt.start_time.isoformat() if appt.start_time else None,
+                'end_time': appt.end_time.isoformat() if appt.end_time else None,
+                'duration_minutes': appt.duration_minutes,
+                'location': appt.location,
+                'practitioner': appt.assigned_practitioner.full_name if hasattr(appt, 'assigned_practitioner') and appt.assigned_practitioner else appt.practitioner,
+                'notes': appt.notes,
+                'status': appt.status
+            })
+        
+        return jsonify(appointments_list)
+    except Exception as e:
+        logger.error(f"Error getting patient appointments: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/patients/<int:patient_id>/appointments', methods=['POST'])
 @optional_login_required
@@ -3390,8 +3419,9 @@ def get_patient_notes(patient_id):
         
         return jsonify({'success': True, 'notes': notes_data})
     except Exception as e:
-        logger.error(f"Error getting patient notes: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error getting patient notes: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/patients/<int:patient_id>/notes', methods=['POST'])
 @optional_login_required
@@ -5548,12 +5578,104 @@ def master_calendar():
 @app.route('/api/calendar/events', methods=['GET'])
 @optional_login_required
 def get_calendar_events():
-    """Get calendar events in FullCalendar format with date range filtering"""
+    """Get calendar events in FullCalendar format with date range filtering - OPTIMIZED"""
     try:
         practitioner_id = request.args.get('practitioner_id')
         start_date = request.args.get('start')  # ISO format date
         end_date = request.args.get('end')  # ISO format date
         
+        # Parse dates
+        start_dt = None
+        end_dt = None
+        
+        if start_date:
+            try:
+                start_date_clean = start_date.replace('Z', '+00:00')
+                if 'T' not in start_date_clean:
+                    start_date_clean = start_date_clean + 'T00:00:00'
+                if '+' in start_date_clean:
+                    start_date_clean = start_date_clean.split('+')[0]
+                elif start_date_clean.endswith('Z'):
+                    start_date_clean = start_date_clean[:-1]
+                start_dt = datetime.fromisoformat(start_date_clean)
+            except:
+                try:
+                    date_part = start_date.split('T')[0] if 'T' in start_date else start_date
+                    start_dt = datetime.strptime(date_part, '%Y-%m-%d')
+                except:
+                    pass
+        
+        if end_date:
+            try:
+                end_date_clean = end_date.replace('Z', '+00:00')
+                if 'T' not in end_date_clean:
+                    end_date_clean = end_date_clean + 'T23:59:59'
+                if '+' in end_date_clean:
+                    end_date_clean = end_date_clean.split('+')[0]
+                elif end_date_clean.endswith('Z'):
+                    end_date_clean = end_date_clean[:-1]
+                end_dt = datetime.fromisoformat(end_date_clean)
+            except:
+                try:
+                    date_part = end_date.split('T')[0] if 'T' in end_date else end_date
+                    end_dt = datetime.strptime(date_part, '%Y-%m-%d')
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                except:
+                    pass
+        
+        # Try to use cache table first (much faster)
+        try:
+            from sqlalchemy import text
+            # Check if cache table exists
+            cache_check = db.session.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'appointment_date_cache'
+                )
+            """)).scalar()
+            
+            if cache_check:
+                # Use cache table for fast query - build query with conditions
+                query_parts = ["""
+                    SELECT a.id
+                    FROM appointment_date_cache adc
+                    JOIN appointments a ON a.id = adc.appointment_id
+                    WHERE 1=1
+                """]
+                
+                params = {}
+                if start_dt:
+                    query_parts.append("AND adc.date >= :start_date")
+                    params['start_date'] = start_dt.date()
+                if end_dt:
+                    query_parts.append("AND adc.date <= :end_date")
+                    params['end_date'] = end_dt.date()
+                if practitioner_id:
+                    query_parts.append("AND adc.practitioner_id = :practitioner_id")
+                    params['practitioner_id'] = int(practitioner_id)
+                
+                query_parts.append("ORDER BY adc.start_time")
+                
+                cache_query_str = " ".join(query_parts)
+                cache_results = db.session.execute(text(cache_query_str), params).fetchall()
+                
+                # Convert to Appointment objects
+                appointment_ids = [row[0] for row in cache_results]
+                if appointment_ids:
+                    appointments = Appointment.query.filter(Appointment.id.in_(appointment_ids)).all()
+                    # Sort by original order
+                    appointment_dict = {apt.id: apt for apt in appointments}
+                    appointments = [appointment_dict[aid] for aid in appointment_ids if aid in appointment_dict]
+                else:
+                    appointments = []
+                
+                events = [apt.to_calendar_event() for apt in appointments]
+                return jsonify({'success': True, 'events': events})
+        except Exception as cache_error:
+            logger.warning(f"Cache table not available, using regular query: {cache_error}")
+            # Fall through to regular query
+        
+        # Regular query (fallback)
         query = Appointment.query
         
         if practitioner_id:
@@ -5562,25 +5684,296 @@ def get_calendar_events():
         # Add date range filtering for performance
         if start_date:
             try:
-                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                # Handle various ISO formats
+                start_date_clean = start_date.replace('Z', '+00:00')
+                # If it's just a date string, add time
+                if 'T' not in start_date_clean:
+                    start_date_clean = start_date_clean + 'T00:00:00'
+                # Remove timezone if present for simpler parsing
+                if '+' in start_date_clean:
+                    start_date_clean = start_date_clean.split('+')[0]
+                elif start_date_clean.endswith('Z'):
+                    start_date_clean = start_date_clean[:-1]
+                start_dt = datetime.fromisoformat(start_date_clean)
                 query = query.filter(Appointment.start_time >= start_dt)
-            except ValueError:
-                pass  # Invalid date format, ignore
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Invalid start_date format '{start_date}': {e}")
+                # Try alternative parsing
+                try:
+                    date_part = start_date.split('T')[0] if 'T' in start_date else start_date
+                    start_dt = datetime.strptime(date_part, '%Y-%m-%d')
+                    query = query.filter(Appointment.start_time >= start_dt)
+                except:
+                    pass  # Invalid date format, ignore
         
         if end_date:
             try:
-                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                # Handle various ISO formats
+                end_date_clean = end_date.replace('Z', '+00:00')
+                # If it's just a date string, add time
+                if 'T' not in end_date_clean:
+                    end_date_clean = end_date_clean + 'T23:59:59'
+                # Remove timezone if present for simpler parsing
+                if '+' in end_date_clean:
+                    end_date_clean = end_date_clean.split('+')[0]
+                elif end_date_clean.endswith('Z'):
+                    end_date_clean = end_date_clean[:-1]
+                end_dt = datetime.fromisoformat(end_date_clean)
                 query = query.filter(Appointment.end_time <= end_dt)
-            except ValueError:
-                pass  # Invalid date format, ignore
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Invalid end_date format '{end_date}': {e}")
+                # Try alternative parsing
+                try:
+                    date_part = end_date.split('T')[0] if 'T' in end_date else end_date
+                    end_dt = datetime.strptime(date_part, '%Y-%m-%d')
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                    query = query.filter(Appointment.end_time <= end_dt)
+                except:
+                    pass  # Invalid date format, ignore
         
-        appointments = query.all()
-        events = [apt.to_calendar_event() for apt in appointments]
+        # Execute query - columns should exist now
+        try:
+            appointments = query.all()
+            events = [apt.to_calendar_event() for apt in appointments]
+        except Exception as db_error:
+            # CRITICAL: Always rollback on error to clear failed transaction
+            db.session.rollback()
+            
+            # Log the error
+            error_str = str(db_error).lower()
+            logger.error(f"Error querying appointments: {db_error}")
+            
+            # If it's a transaction error, try one more time with a fresh query
+            if 'transaction' in error_str or 'aborted' in error_str:
+                logger.warning("Transaction error detected - retrying with fresh query...")
+                try:
+                    # Create completely fresh query
+                    fresh_query = Appointment.query
+                    if practitioner_id:
+                        fresh_query = fresh_query.filter_by(practitioner_id=int(practitioner_id))
+                    if start_date:
+                        fresh_query = fresh_query.filter(Appointment.start_time >= start_dt)
+                    if end_date:
+                        fresh_query = fresh_query.filter(Appointment.end_time <= end_dt)
+                    
+                    appointments = fresh_query.all()
+                    events = [apt.to_calendar_event() for apt in appointments]
+                except Exception as retry_error:
+                    logger.error(f"Retry also failed: {retry_error}")
+                    db.session.rollback()
+                    raise db_error
+            else:
+                # For other errors, re-raise after rollback
+                raise db_error
         
         return jsonify({'success': True, 'events': events})
     except Exception as e:
-        logger.error(f"Error fetching calendar events: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error fetching calendar events: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'message': str(e)}), 500
+
+@app.route('/api/calendar/cache/setup', methods=['GET', 'POST'])
+@optional_login_required
+def setup_appointment_cache():
+    """Create the appointment cache table and triggers if they don't exist"""
+    try:
+        from sqlalchemy import text
+        
+        connection = db.engine.connect()
+        trans = connection.begin()
+        
+        try:
+            # Create cache table
+            connection.execute(text("""
+                CREATE TABLE IF NOT EXISTS appointment_date_cache (
+                    id SERIAL PRIMARY KEY,
+                    appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+                    date DATE NOT NULL,
+                    start_time TIMESTAMP NOT NULL,
+                    end_time TIMESTAMP NOT NULL,
+                    patient_id INTEGER NOT NULL,
+                    practitioner_id INTEGER,
+                    status VARCHAR(50) DEFAULT 'scheduled',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(appointment_id, date)
+                )
+            """))
+            
+            # Create indexes
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_appointment_cache_date ON appointment_date_cache(date)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_appointment_cache_practitioner ON appointment_date_cache(practitioner_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_appointment_cache_patient ON appointment_date_cache(patient_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_appointment_cache_status ON appointment_date_cache(status)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_appointment_cache_date_range ON appointment_date_cache(date, start_time, end_time)"))
+            
+            # Create refresh function
+            connection.execute(text("""
+                CREATE OR REPLACE FUNCTION refresh_appointment_cache(start_date DATE, end_date DATE)
+                RETURNS void AS $$
+                BEGIN
+                    DELETE FROM appointment_date_cache 
+                    WHERE date >= start_date AND date <= end_date;
+                    
+                    INSERT INTO appointment_date_cache (
+                        appointment_id, date, start_time, end_time, 
+                        patient_id, practitioner_id, status
+                    )
+                    SELECT 
+                        a.id,
+                        DATE(a.start_time) as date,
+                        a.start_time,
+                        a.end_time,
+                        a.patient_id,
+                        a.practitioner_id,
+                        a.status
+                    FROM appointments a
+                    WHERE DATE(a.start_time) >= start_date 
+                      AND DATE(a.start_time) <= end_date
+                      AND a.status != 'cancelled'
+                    ON CONFLICT (appointment_id, date) DO UPDATE SET
+                        start_time = EXCLUDED.start_time,
+                        end_time = EXCLUDED.end_time,
+                        status = EXCLUDED.status;
+                END;
+                $$ LANGUAGE plpgsql
+            """))
+            
+            # Create trigger function
+            connection.execute(text("""
+                CREATE OR REPLACE FUNCTION update_appointment_cache()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    DELETE FROM appointment_date_cache WHERE appointment_id = COALESCE(OLD.id, NEW.id);
+                    
+                    IF NEW.status != 'cancelled' THEN
+                        INSERT INTO appointment_date_cache (
+                            appointment_id, date, start_time, end_time,
+                            patient_id, practitioner_id, status
+                        )
+                        VALUES (
+                            NEW.id,
+                            DATE(NEW.start_time),
+                            NEW.start_time,
+                            NEW.end_time,
+                            NEW.patient_id,
+                            NEW.practitioner_id,
+                            NEW.status
+                        )
+                        ON CONFLICT (appointment_id, date) DO UPDATE SET
+                            start_time = EXCLUDED.start_time,
+                            end_time = EXCLUDED.end_time,
+                            status = EXCLUDED.status;
+                    END IF;
+                    
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """))
+            
+            # Create triggers
+            connection.execute(text("""
+                DROP TRIGGER IF EXISTS trigger_appointment_cache_insert ON appointments;
+                CREATE TRIGGER trigger_appointment_cache_insert
+                    AFTER INSERT ON appointments
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_appointment_cache()
+            """))
+            
+            connection.execute(text("""
+                DROP TRIGGER IF EXISTS trigger_appointment_cache_update ON appointments;
+                CREATE TRIGGER trigger_appointment_cache_update
+                    AFTER UPDATE ON appointments
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_appointment_cache()
+            """))
+            
+            connection.execute(text("""
+                DROP TRIGGER IF EXISTS trigger_appointment_cache_delete ON appointments;
+                CREATE TRIGGER trigger_appointment_cache_delete
+                    AFTER DELETE ON appointments
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_appointment_cache()
+            """))
+            
+            # Initial population
+            from datetime import date, timedelta
+            start_date = (date.today() - timedelta(days=30)).isoformat()
+            end_date = (date.today() + timedelta(days=90)).isoformat()
+            
+            connection.execute(text("""
+                SELECT refresh_appointment_cache(:start_date::date, :end_date::date)
+            """), {
+                'start_date': start_date,
+                'end_date': end_date
+            })
+            
+            trans.commit()
+            logger.info("✅ Appointment cache table and triggers created")
+        except Exception as e:
+            trans.rollback()
+            # If table already exists, that's okay
+            if 'already exists' in str(e).lower() or 'duplicate' in str(e).lower():
+                logger.info("Cache table already exists")
+            else:
+                raise
+        finally:
+            connection.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Appointment cache table setup completed'
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error setting up cache: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/calendar/cache/refresh', methods=['POST'])
+@optional_login_required
+def refresh_appointment_cache():
+    """Manually refresh the appointment cache table"""
+    try:
+        from sqlalchemy import text
+        from datetime import date, timedelta
+        
+        start_date = request.json.get('start_date') if request.json else None
+        end_date = request.json.get('end_date') if request.json else None
+        
+        if not start_date or not end_date:
+            # Default to current month + 3 months ahead
+            start_date = (date.today() - timedelta(days=30)).isoformat()
+            end_date = (date.today() + timedelta(days=90)).isoformat()
+        
+        # Check if function exists first
+        func_exists = db.session.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM pg_proc 
+                WHERE proname = 'refresh_appointment_cache'
+            )
+        """)).scalar()
+        
+        if not func_exists:
+            # Try to setup cache first
+            setup_result = setup_appointment_cache()
+            if not setup_result[0].get_json().get('success'):
+                return setup_result
+        
+        result = db.session.execute(text("""
+            SELECT refresh_appointment_cache(:start_date::date, :end_date::date)
+        """), {
+            'start_date': start_date,
+            'end_date': end_date
+        })
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Cache refreshed for {start_date} to {end_date}'
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error refreshing cache: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/appointments/<int:appointment_id>', methods=['GET'])
 @optional_login_required
@@ -5608,6 +6001,78 @@ def get_appointment(appointment_id):
     except Exception as e:
         logger.error(f"Error fetching appointment {appointment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/calendar/check-conflict', methods=['GET'])
+@optional_login_required
+def check_appointment_conflict():
+    """Check if moving an appointment causes a conflict"""
+    try:
+        appointment_id = request.args.get('appointment_id', type=int)
+        date_str = request.args.get('date')
+        time_str = request.args.get('time')
+        
+        if not appointment_id or not date_str or not time_str:
+            return jsonify({'conflict': False, 'message': 'Invalid parameters'}), 400
+            
+        # Parse new start time
+        try:
+            new_start = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M')
+        except ValueError:
+            # Try ISO format if simple format fails or fallback
+            try:
+                 new_start = datetime.fromisoformat(f"{date_str}T{time_str}")
+            except ValueError:
+                 return jsonify({'conflict': False, 'message': 'Invalid date/time format'}), 400
+            
+        # Get existing appointment to get duration and practitioner
+        appointment = Appointment.query.get(appointment_id)
+        if not appointment:
+            return jsonify({'conflict': False, 'message': 'Appointment not found'}), 404
+            
+        duration = appointment.duration_minutes
+        new_end = new_start + timedelta(minutes=duration)
+        practitioner_id = appointment.practitioner_id
+        
+        # Check for overlaps with OTHER appointments for same practitioner
+        if practitioner_id:
+            conflicting_appointments = Appointment.query.filter(
+                Appointment.practitioner_id == practitioner_id,
+                Appointment.id != appointment_id, # Exclude self
+                Appointment.status != 'cancelled',
+                db.or_(
+                    # New appointment starts during existing appointment
+                    db.and_(
+                        Appointment.start_time <= new_start,
+                        Appointment.end_time > new_start
+                    ),
+                    # New appointment ends during existing appointment
+                    db.and_(
+                        Appointment.start_time < new_end,
+                        Appointment.end_time >= new_end
+                    ),
+                    # New appointment completely contains existing appointment
+                    db.and_(
+                        Appointment.start_time >= new_start,
+                        Appointment.end_time <= new_end
+                    )
+                )
+            ).all()
+            
+            if conflicting_appointments:
+                practitioner_name = appointment.practitioner.full_name if appointment.practitioner else 'Practitioner'
+                conflict_msg = f"This time overlaps with another appointment for {practitioner_name}."
+                # Specific details could be added
+                return jsonify({
+                    'conflict': True, 
+                    'message': conflict_msg,
+                    'details': [f"{apt.title} ({apt.start_time.strftime('%H:%M')}-{apt.end_time.strftime('%H:%M')})" for apt in conflicting_appointments]
+                })
+                
+        return jsonify({'conflict': False, 'message': 'No conflict'})
+        
+    except Exception as e:
+        logger.error(f"Error checking conflict: {e}")
+        return jsonify({'conflict': False, 'message': str(e)}), 500
 
 @app.route('/api/calendar/appointments', methods=['POST'])
 @optional_login_required
@@ -5854,6 +6319,173 @@ def notify_appointment_change(appointment_id):
         logger.error(f"Error sending notification: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/reminders/check', methods=['POST'])
+def check_reminders():
+    """Manually trigger reminder check (for testing/admin and Cloud Scheduler)
+    Note: In production, secure this endpoint or use Cloud Scheduler authentication
+    """
+    try:
+        from capturecare.appointment_reminder_service import AppointmentReminderService
+        
+        reminder_service = AppointmentReminderService()
+        stats = reminder_service.check_and_send_reminders()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'message': f"Checked {stats['checked']} appointments, sent {stats['24hr_sent']} 24hr reminders and {stats['day_before_sent']} day-before reminders"
+        })
+    except Exception as e:
+        logger.error(f"Error checking reminders: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/reminders/setup', methods=['GET', 'POST'])
+def setup_reminders():
+    """Run reminder setup (migration and templates) - one-time setup
+    Note: This endpoint is open for initial setup but should be secured after migration
+    """
+    """Run reminder setup (migration and templates) - one-time setup"""
+    try:
+        results = {
+            'migration': {'success': False, 'message': ''},
+            'templates': {'success': False, 'message': ''}
+        }
+        
+        # Run database migration
+        try:
+            from sqlalchemy import text
+            connection = db.engine.connect()
+            trans = connection.begin()
+            
+            try:
+                # Add reminder fields if they don't exist
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_24hr_sent BOOLEAN DEFAULT FALSE;
+                """))
+                
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_24hr_sent_at TIMESTAMP;
+                """))
+                
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_day_before_sent BOOLEAN DEFAULT FALSE;
+                """))
+                
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_day_before_sent_at TIMESTAMP;
+                """))
+                
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_1hr_sent BOOLEAN DEFAULT FALSE;
+                """))
+                
+                connection.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN IF NOT EXISTS reminder_1hr_sent_at TIMESTAMP;
+                """))
+                
+                trans.commit()
+                results['migration'] = {'success': True, 'message': 'Reminder fields added successfully'}
+                logger.info("✅ Reminder fields migration completed")
+            except Exception as e:
+                trans.rollback()
+                if 'already exists' in str(e).lower() or 'duplicate' in str(e).lower():
+                    results['migration'] = {'success': True, 'message': 'Reminder fields already exist'}
+                else:
+                    raise
+            finally:
+                connection.close()
+        except Exception as e:
+            results['migration'] = {'success': False, 'message': str(e)}
+            logger.error(f"Migration error: {e}")
+        
+        # Create reminder templates
+        try:
+            # Check if templates already exist
+            existing_24hr = NotificationTemplate.query.filter_by(
+                template_type='sms',
+                template_name='appointment_reminder_24hr'
+            ).first()
+            
+            existing_day_before = NotificationTemplate.query.filter_by(
+                template_type='sms',
+                template_name='appointment_reminder_day_before'
+            ).first()
+            
+            created_count = 0
+            
+            # Create 24hr reminder template
+            if not existing_24hr:
+                template_24hr = NotificationTemplate(
+                    template_type='sms',
+                    template_name='appointment_reminder_24hr',
+                    is_predefined=True,
+                    is_active=True,
+                    message="Hi {first_name}, reminder: Your appointment is in 24 hours at {date_time_short}. Location: {location}. See you then!",
+                    description="24-hour appointment reminder SMS"
+                )
+                db.session.add(template_24hr)
+                created_count += 1
+            
+            # Create day-before reminder template
+            if not existing_day_before:
+                template_day_before = NotificationTemplate(
+                    template_type='sms',
+                    template_name='appointment_reminder_day_before',
+                    is_predefined=True,
+                    is_active=True,
+                    message="Hi {first_name}, reminder: Your appointment is tomorrow at {date_time_short}. Location: {location}. See you then!",
+                    description="Day-before appointment reminder SMS (sent at 6pm)"
+                )
+                db.session.add(template_day_before)
+                created_count += 1
+            
+            db.session.commit()
+            results['templates'] = {'success': True, 'message': f'Created {created_count} reminder templates'}
+            logger.info(f"✅ Created {created_count} reminder templates")
+        except Exception as e:
+            db.session.rollback()
+            results['templates'] = {'success': False, 'message': str(e)}
+            logger.error(f"Template creation error: {e}")
+        
+        all_success = results['migration']['success'] and results['templates']['success']
+        
+        return jsonify({
+            'success': all_success,
+            'results': results,
+            'message': 'Reminder setup completed' if all_success else 'Reminder setup completed with some errors'
+        })
+    except Exception as e:
+        logger.error(f"Error in reminder setup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/reminders/status/<int:appointment_id>', methods=['GET'])
+@optional_login_required
+def get_reminder_status(appointment_id):
+    """Get reminder status for an appointment"""
+    try:
+        appointment = Appointment.query.get_or_404(appointment_id)
+        
+        return jsonify({
+            'success': True,
+            'reminder_status': {
+                'reminder_24hr_sent': appointment.reminder_24hr_sent,
+                'reminder_24hr_sent_at': appointment.reminder_24hr_sent_at.isoformat() if appointment.reminder_24hr_sent_at else None,
+                'reminder_day_before_sent': appointment.reminder_day_before_sent,
+                'reminder_day_before_sent_at': appointment.reminder_day_before_sent_at.isoformat() if appointment.reminder_day_before_sent_at else None,
+                'reminder_1hr_sent': appointment.reminder_1hr_sent,
+                'reminder_1hr_sent_at': appointment.reminder_1hr_sent_at.isoformat() if appointment.reminder_1hr_sent_at else None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting reminder status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/calendar/appointments/<int:appointment_id>', methods=['DELETE'])
 @optional_login_required
 def delete_calendar_appointment(appointment_id):
@@ -5889,8 +6521,16 @@ def get_availability_blocks():
         if not start_date_str or not end_date_str:
             return jsonify({'success': False, 'error': 'Start and end dates required'}), 400
         
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        try:
+            # Handle date strings that might have time components
+            start_date_clean = start_date_str.split('T')[0] if 'T' in start_date_str else start_date_str
+            end_date_clean = end_date_str.split('T')[0] if 'T' in end_date_str else end_date_str
+            
+            start_date = datetime.strptime(start_date_clean, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_clean, '%Y-%m-%d').date()
+        except ValueError as e:
+            logger.error(f"Invalid date format: start={start_date_str}, end={end_date_str}, error={e}")
+            return jsonify({'success': False, 'error': f'Invalid date format: {str(e)}'}), 400
         
         # Get practitioners to show
         if practitioner_id:
@@ -5900,19 +6540,30 @@ def get_availability_blocks():
         
         availability_blocks = []
         
+        # Ensure we have a clean transaction
+        try:
+            db.session.rollback()  # Start fresh
+        except:
+            pass
+        
         for practitioner in practitioners:
-            # Get all active patterns
-            patterns = AvailabilityPattern.query.filter_by(
-                user_id=practitioner.id,
-                is_active=True
-            ).all()
-            
-            # Get exceptions in date range
-            exceptions = AvailabilityException.query.filter(
-                AvailabilityException.user_id == practitioner.id,
-                AvailabilityException.exception_date >= start_date,
-                AvailabilityException.exception_date <= end_date
-            ).all()
+            try:
+                # Get all active patterns
+                patterns = AvailabilityPattern.query.filter_by(
+                    user_id=practitioner.id,
+                    is_active=True
+                ).all()
+                
+                # Get exceptions in date range
+                exceptions = AvailabilityException.query.filter(
+                    AvailabilityException.user_id == practitioner.id,
+                    AvailabilityException.exception_date >= start_date,
+                    AvailabilityException.exception_date <= end_date
+                ).all()
+            except Exception as e:
+                logger.error(f"Error loading patterns/exceptions for practitioner {practitioner.id}: {e}")
+                db.session.rollback()
+                continue  # Skip this practitioner
             
             # Generate availability blocks for each day in range
             current_date = start_date
@@ -5987,8 +6638,9 @@ def get_availability_blocks():
             'blocks': availability_blocks
         })
     except Exception as e:
-        logger.error(f"Error getting availability blocks: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 400
+        logger.error(f"Error getting availability blocks: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'message': str(e)}), 500
 
 @app.route('/api/calendar/block-slot', methods=['POST'])
 @optional_login_required
@@ -6134,7 +6786,6 @@ def get_batch_availability():
                             
                             # Check if pattern applies to this day of week
                             day_of_week_num = target_date.weekday()  # 0=Monday, 6=Sunday
-                            day_of_week_name = target_date.strftime('%A').lower()
                             applies = False
                             
                             if pattern.frequency == 'daily':
@@ -6147,46 +6798,143 @@ def get_batch_availability():
                                     applies = day_of_week_num in day_numbers
                             
                             if applies:
-                                # Check if exception blocks this time
-                                partial_block_times = [(datetime.strptime(ex.start_time, '%H:%M').time() if ex.start_time else None,
-                                                       datetime.strptime(ex.end_time, '%H:%M').time() if ex.end_time else None)
-                                                      for ex in exceptions if not ex.is_all_day]
+                                # Get partial blocks for this day
+                                partial_blocks = []
+                                for ex in exceptions:
+                                    if not ex.is_all_day and ex.start_time and ex.end_time:
+                                        try:
+                                            if isinstance(ex.start_time, str):
+                                                block_start = datetime.strptime(ex.start_time, '%H:%M').time()
+                                            else:
+                                                block_start = ex.start_time
+                                                
+                                            if isinstance(ex.end_time, str):
+                                                block_end = datetime.strptime(ex.end_time, '%H:%M').time()
+                                            else:
+                                                block_end = ex.end_time
+                                                
+                                            partial_blocks.append((block_start, block_end))
+                                        except:
+                                            pass
                                 
-                                # Generate time slots
-                                start_time = datetime.strptime(pattern.start_time, '%H:%M').time()
-                                end_time = datetime.strptime(pattern.end_time, '%H:%M').time()
-                                current_time = start_time
-                                
-                                while current_time < end_time:
-                                    # Check if this slot is blocked by an exception
-                                    is_blocked = any(
-                                        (block_start and block_end and block_start <= current_time < block_end)
-                                        for block_start, block_end in partial_block_times
-                                    )
+                                # Generate time slots (every 30 minutes)
+                                try:
+                                    if isinstance(pattern.start_time, str):
+                                        start_time = datetime.strptime(pattern.start_time, '%H:%M').time()
+                                    else:
+                                        start_time = pattern.start_time
+
+                                    if isinstance(pattern.end_time, str):
+                                        end_time = datetime.strptime(pattern.end_time, '%H:%M').time()
+                                    else:
+                                        end_time = pattern.end_time
+                                    current_time = start_time
                                     
-                                    if not is_blocked:
-                                        available_slots.append(current_time.strftime('%H:%M'))
-                                    
-                                    # Increment by 30 minutes
-                                    dt = datetime.combine(target_date, current_time)
-                                    dt += timedelta(minutes=30)
-                                    current_time = dt.time()
+                                    while current_time < end_time:
+                                        # Check if this slot is blocked by an exception
+                                        is_blocked = any(
+                                            (block_start <= current_time < block_end)
+                                            for block_start, block_end in partial_blocks
+                                        )
+                                        
+                                        if not is_blocked:
+                                            # Check if slot has continuous availability for duration
+                                            slot_datetime = datetime.combine(target_date, current_time)
+                                            end_slot_datetime = slot_datetime + timedelta(minutes=duration_minutes)
+                                            
+                                            # Verify all 30-minute intervals in this duration are available
+                                            has_continuous = True
+                                            check_time = slot_datetime
+                                            while check_time < end_slot_datetime:
+                                                check_time_obj = check_time.time()
+                                                if any(block_start <= check_time_obj < block_end for block_start, block_end in partial_blocks):
+                                                    has_continuous = False
+                                                    break
+                                                check_time += timedelta(minutes=30)
+                                            
+                                            if has_continuous:
+                                                available_slots.append(current_time.strftime('%H:%M'))
+                                        
+                                        # Increment by 30 minutes
+                                        dt = datetime.combine(target_date, current_time)
+                                        dt += timedelta(minutes=30)
+                                        current_time = dt.time()
+                                except Exception as e:
+                                    logger.warning(f"Error processing pattern {pattern.id} for {date_str}: {e}")
+                                    continue
                         
                         # Get booked appointments for this date
-                        appointments = Appointment.query.filter(
-                            Appointment.practitioner_id == practitioner_id,
-                            db.func.date(Appointment.start_time) == target_date
-                        ).all()
-                        
-                        for apt in appointments:
-                            booked_slots.append(apt.start_time.strftime('%H:%M'))
+                        try:
+                            appointments = Appointment.query.filter(
+                                Appointment.practitioner_id == practitioner_id,
+                                db.func.date(Appointment.start_time) == target_date
+                            ).all()
+                            
+                            for apt in appointments:
+                                booked_slots.append(apt.start_time.strftime('%H:%M'))
+                        except Exception as db_error:
+                            # If reminder fields don't exist, try to add them or use raw SQL
+                            error_str = str(db_error).lower()
+                            if 'reminder' in error_str and 'does not exist' in error_str:
+                                try:
+                                    from sqlalchemy import text
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_24hr_sent BOOLEAN DEFAULT FALSE;
+                                    """))
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_24hr_sent_at TIMESTAMP;
+                                    """))
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_day_before_sent BOOLEAN DEFAULT FALSE;
+                                    """))
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_day_before_sent_at TIMESTAMP;
+                                    """))
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_1hr_sent BOOLEAN DEFAULT FALSE;
+                                    """))
+                                    db.session.execute(text("""
+                                        ALTER TABLE appointments 
+                                        ADD COLUMN IF NOT EXISTS reminder_1hr_sent_at TIMESTAMP;
+                                    """))
+                                    db.session.commit()
+                                    # Retry query
+                                    appointments = Appointment.query.filter(
+                                        Appointment.practitioner_id == practitioner_id,
+                                        db.func.date(Appointment.start_time) == target_date
+                                    ).all()
+                                    for apt in appointments:
+                                        booked_slots.append(apt.start_time.strftime('%H:%M'))
+                                except:
+                                    db.session.rollback()
+                                    # Use raw SQL as fallback
+                                    from sqlalchemy import text
+                                    appointments_raw = db.session.execute(text("""
+                                        SELECT start_time FROM appointments
+                                        WHERE practitioner_id = :pract_id 
+                                          AND date(start_time) = :target_date
+                                    """), {
+                                        'pract_id': practitioner_id,
+                                        'target_date': target_date
+                                    }).fetchall()
+                                    for row in appointments_raw:
+                                        if row[0]:
+                                            booked_slots.append(row[0].strftime('%H:%M'))
+                            else:
+                                raise
                     
                     result[practitioner_id][date_str] = {
                         'available_slots': available_slots,
                         'booked_slots': booked_slots,
                         'is_blocked': full_day_block
                     }
-                except ValueError:
+                except ValueError as e:
+                    logger.warning(f"Invalid date format {date_str}: {e}")
                     continue  # Invalid date format
         
         return jsonify({'success': True, 'availability': result})
@@ -6814,41 +7562,114 @@ def patient_profile():
 @app.route('/api/patient/health-data', methods=['GET'])
 @patient_auth_required
 def patient_health_data():
-    """Get patient health data (protected)"""
-    try:
-        patient_id = request.patient_id
-        days = int(request.args.get('days', 30))
-        metric_type = request.args.get('type')
-        
-        query = HealthData.query.filter(
-            HealthData.patient_id == patient_id,
-            HealthData.timestamp >= datetime.now() - timedelta(days=days)
-        )
-        
-        if metric_type:
-            query = query.filter(HealthData.measurement_type == metric_type)
-        
-        health_data = query.order_by(HealthData.timestamp).all()
-        
-        # Optimized: Use list comprehension instead of loop
-        data = [{
-            'id': item.id,
-            'type': item.measurement_type,
-            'value': item.value,
-            'unit': item.unit,
-            'timestamp': item.timestamp.isoformat(),
-            'source': item.source,
-            'device_source': item.device_source
-        } for item in health_data]
-        
-        return jsonify({
-            'success': True,
-            'data': data,
-            'count': len(data)
-        })
-    except Exception as e:
-        logger.error(f"Get health data error: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+    """Get patient health data (protected) with robust error handling and connection retry"""
+    max_retries = 3
+    retry_delay = 0.5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            patient_id = request.patient_id
+            days = int(request.args.get('days', 30))
+            metric_type = request.args.get('type')
+            
+            # Validate days parameter
+            if days < 1 or days > 365:
+                days = 30
+            
+            # Calculate timestamp with timezone awareness
+            from datetime import timezone
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
+            
+            # Build query with proper session handling
+            try:
+                # Use a fresh query to avoid stale connections
+                query = db.session.query(HealthData).filter(
+                    HealthData.patient_id == patient_id,
+                    HealthData.timestamp >= cutoff_time
+                )
+                
+                if metric_type:
+                    query = query.filter(HealthData.measurement_type == metric_type)
+                
+                # Execute query with timeout protection
+                health_data = query.order_by(HealthData.timestamp.asc()).all()
+                
+                # Process data safely
+                data = []
+                for item in health_data:
+                    try:
+                        data.append({
+                            'id': item.id,
+                            'type': item.measurement_type,
+                            'value': float(item.value) if item.value is not None else None,
+                            'unit': item.unit or '',
+                            'timestamp': item.timestamp.isoformat() if item.timestamp else None,
+                            'source': item.source or '',
+                            'device_source': item.device_source or ''
+                        })
+                    except (AttributeError, ValueError, TypeError) as e:
+                        logger.warning(f"Skipping invalid health data item {item.id}: {e}")
+                        continue
+                
+                # Commit successful transaction
+                db.session.commit()
+                
+                return jsonify({
+                    'success': True,
+                    'data': data,
+                    'count': len(data)
+                })
+                
+            except Exception as db_error:
+                # Rollback on any database error
+                db.session.rollback()
+                
+                # Check if it's a connection error that we should retry
+                error_str = str(db_error).lower()
+                is_connection_error = any(keyword in error_str for keyword in [
+                    'lost synchronization',
+                    'server closed the connection',
+                    'connection',
+                    'operationalerror',
+                    'timeout',
+                    'broken pipe'
+                ])
+                
+                if is_connection_error and attempt < max_retries - 1:
+                    logger.warning(f"Database connection error (attempt {attempt + 1}/{max_retries}): {db_error}")
+                    import time
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue  # Retry
+                else:
+                    raise  # Re-raise if not retryable or last attempt
+                    
+        except Exception as e:
+            # Final error handling
+            db.session.rollback()
+            
+            if attempt == max_retries - 1:
+                # Last attempt failed
+                logger.error(f"Get health data error after {max_retries} attempts: {e}", exc_info=True)
+                
+                # Return user-friendly error message
+                error_message = "Unable to load health data. Please try again."
+                if "lost synchronization" in str(e).lower() or "connection" in str(e).lower():
+                    error_message = "Database connection issue. Please try again in a moment."
+                
+                return jsonify({
+                    'success': False,
+                    'error': error_message,
+                    'error_code': 'DATABASE_ERROR'
+                }), 500
+            else:
+                # Will retry
+                continue
+    
+    # Should never reach here, but just in case
+    return jsonify({
+        'success': False,
+        'error': 'Unable to load health data. Please try again.'
+    }), 500
 
 @app.route('/api/patient/target-ranges', methods=['GET'])
 @patient_auth_required

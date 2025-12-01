@@ -24,15 +24,17 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 4px 8px;
+    padding: 0 4px; /* Reduced padding to make room for absolute icons */
     font-size: 13px;
     font-weight: 500;
     color: white;
     cursor: pointer;
     transition: all 120ms ease;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    line-height: 1.2;
-    min-height: 40px; /* Accessibility: min click target */
+    line-height: 1.1; /* tighter line height */
+    min-height: 32px; 
+    position: relative; /* For absolute positioning of icons */
+    overflow: visible; /* Allow icons to slightly peek if needed, though strictly inside is better */
 }
 
 .appointment-badge:hover {
@@ -43,8 +45,10 @@
 
 .appointment-badge .practitioner-initials {
     font-size: 11px;
-    font-weight: 600;
-    margin-bottom: 2px;
+    font-weight: 700; /* Bold for clarity */
+    margin-bottom: 1px;
+    width: 100%;
+    text-align: center;
 }
 
 .appointment-badge .patient-info {
@@ -53,8 +57,39 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 100%;
+    max-width: 70px; /* Ensure it doesn't hit corner icons too much */
+    text-align: center;
 }
+
+/* Badge Indicators - Absolute Positioning */
+.badge-top-right {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    display: flex;
+    gap: 1px;
+    font-size: 8px; /* Small icons */
+}
+
+.badge-bottom-left {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    font-size: 8px;
+}
+
+.badge-bottom-right {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 8px;
+}
+
+.indicator-icon {
+    font-size: 10px; /* slightly larger than container font for visibility */
+    line-height: 1;
+}
+
 
 /* State Overlays */
 .appointment-badge.cancelled {
@@ -168,15 +203,17 @@
 /* Side Drawer */
 .appointment-drawer {
     position: fixed;
-    right: -400px;
+    right: -600px; /* Increased width for split view */
     top: 0;
-    width: 400px;
+    width: 600px; /* Wider drawer per spec */
     height: 100vh;
     background: white;
     box-shadow: -4px 0 12px rgba(0,0,0,0.15);
     z-index: 10000;
     transition: right 300ms ease;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .appointment-drawer.open {
@@ -190,13 +227,49 @@
     justify-content: space-between;
     align-items: center;
     background: #f9f9f9;
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    flex-shrink: 0;
 }
 
-.appointment-drawer .drawer-content {
+.appointment-drawer .drawer-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.appointment-drawer .left-panel {
+    flex: 1;
     padding: 20px;
+    border-right: 1px solid #eee;
+    overflow-y: auto;
+}
+
+.appointment-drawer .right-panel {
+    width: 250px;
+    padding: 20px;
+    background-color: #fafafa;
+    overflow-y: auto;
+}
+
+/* Telehealth Ribbon */
+.telehealth-ribbon {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 20px 20px 0;
+    border-color: transparent #3b82f6 transparent transparent;
+    z-index: 2;
+}
+
+.telehealth-ribbon::after {
+    content: '💻';
+    position: absolute;
+    top: 2px;
+    right: -18px;
+    font-size: 8px;
+    color: white;
 }
 
 /* Practitioner Filter Badges */

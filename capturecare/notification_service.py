@@ -706,6 +706,73 @@ This is an automated message from CaptureCare® - Humanising Digital Health.
         
         return results
     
+    def send_appointment_reminder(self, patient, appointment, reminder_type='24hr'):
+        """
+        Send appointment reminder SMS
+        
+        Args:
+            patient: Patient model instance
+            appointment: Appointment model instance
+            reminder_type: '24hr' or 'day_before'
+            
+        Returns:
+            dict: Status of SMS sending
+        """
+        from models import NotificationTemplate
+        
+        start_time = appointment.start_time.strftime('%B %d, %Y at %I:%M %p')
+        start_time_short = appointment.start_time.strftime('%d/%m/%Y at %I:%M %p')
+        patient_name = f"{patient.first_name} {patient.last_name}"
+        
+        # Prepare template variables
+        template_vars = {
+            'first_name': patient.first_name,
+            'last_name': patient.last_name,
+            'full_name': patient_name,
+            'date_time': start_time,
+            'date_time_short': start_time_short,
+            'location': appointment.location or 'TBD',
+            'duration': f"{appointment.duration_minutes} minutes",
+            'practitioner': appointment.practitioner or 'Your practitioner',
+            'appointment_type': appointment.appointment_type or 'Appointment',
+            'notes': appointment.notes or ''
+        }
+        
+        # Determine template name based on reminder type
+        template_name = f'appointment_reminder_{reminder_type}'
+        
+        # Try to load custom SMS template
+        sms_template = NotificationTemplate.query.filter_by(
+            template_type='sms',
+            template_name=template_name,
+            is_active=True
+        ).first()
+        
+        if sms_template and sms_template.message:
+            sms_message = self._substitute_template_variables(sms_template.message, template_vars)
+        else:
+            # Default messages
+            if reminder_type == '24hr':
+                sms_message = f"Hi {patient.first_name}, reminder: Your appointment is in 24 hours at {start_time_short}. Location: {appointment.location or 'TBD'}. See you then!"
+            else:  # day_before
+                sms_message = f"Hi {patient.first_name}, reminder: Your appointment is tomorrow at {start_time_short}. Location: {appointment.location or 'TBD'}. See you then!"
+        
+        result = {
+            'success': False,
+            'error': None
+        }
+        
+        if patient.mobile or patient.phone:
+            phone = patient.mobile or patient.phone
+            sms_result = self.send_sms(phone, sms_message, patient_id=patient.id, log_correspondence=True)
+            result['success'] = sms_result.get('success', False)
+            result['error'] = sms_result.get('error')
+        else:
+            logger.info(f"No phone number for patient {patient_name} - skipping reminder SMS")
+            result['error'] = 'No phone number'
+        
+        return result
+    
     def _substitute_template_variables(self, template, variables):
         """Substitute {variable} placeholders in template with actual values"""
         if not template:
