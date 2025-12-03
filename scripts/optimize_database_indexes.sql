@@ -34,3 +34,4 @@ ON appointments(patient_id, start_time DESC);
 CREATE INDEX IF NOT EXISTS idx_devices_patient_id 
 ON devices(patient_id);
 
+

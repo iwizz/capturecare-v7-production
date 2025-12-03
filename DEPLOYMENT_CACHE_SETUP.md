@@ -89,3 +89,4 @@ DROP FUNCTION IF EXISTS refresh_appointment_cache(date, date);
 DROP TABLE IF EXISTS appointment_date_cache;
 ```
 
+

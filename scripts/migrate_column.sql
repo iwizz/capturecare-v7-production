@@ -6,3 +6,4 @@ UPDATE target_ranges
 SET show_in_patient_app = TRUE 
 WHERE show_in_patient_app IS NULL;
 
+

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for, session
 from flask_login import login_required, current_user
 from models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, Device, HealthData
 from datetime import datetime, timedelta, time
@@ -125,19 +125,32 @@ def get_calendar_events():
         events = []
         
         if cache_table_exists:
-            # Use optimized cache query
+            # Use optimized cache query with JOIN to get full appointment data
             logger.info(f"Using optimized cache query for calendar events ({start_dt.date()} to {end_dt.date()})")
             
-            # Build cache query
+            # Build cache query - join with appointments table to get all fields
+            # Only show non-cancelled appointments
             cache_query = """
                 SELECT 
-                    c.appointment_id, c.title, c.start_time, c.end_time, 
-                    c.practitioner_id, c.practitioner_name, c.practitioner_color,
-                    c.patient_id, c.patient_name,
-                    c.status, c.appointment_type, c.notes
+                    c.appointment_id, 
+                    a.title, 
+                    c.start_time, 
+                    c.end_time, 
+                    c.practitioner_id, 
+                    u.first_name || ' ' || u.last_name as practitioner_name,
+                    u.calendar_color as practitioner_color,
+                    c.patient_id, 
+                    p.first_name || ' ' || p.last_name as patient_name,
+                    c.status, 
+                    a.appointment_type, 
+                    a.notes
                 FROM appointment_date_cache c
-                WHERE c.appointment_date >= :start_date 
-                AND c.appointment_date <= :end_date
+                INNER JOIN appointments a ON a.id = c.appointment_id
+                LEFT JOIN users u ON u.id = c.practitioner_id
+                LEFT JOIN patients p ON p.id = c.patient_id
+                WHERE c.date >= :start_date 
+                AND c.date <= :end_date
+                AND c.status != 'cancelled'
             """
             
             params = {'start_date': start_dt.date(), 'end_date': end_dt.date()}
@@ -151,7 +164,7 @@ def get_calendar_events():
             for row in result:
                 events.append({
                     'id': row.appointment_id,
-                    'title': f"{row.patient_name} - {row.title}" if row.patient_name else row.title,
+                    'title': f"{row.patient_name} - {row.title}" if row.patient_name and row.title else (row.title or 'Appointment'),
                     'start': row.start_time.isoformat(),
                     'end': row.end_time.isoformat(),
                     'resourceId': row.practitioner_id,
@@ -159,7 +172,7 @@ def get_calendar_events():
                     'extendedProps': {
                         'patientId': row.patient_id,
                         'practitionerId': row.practitioner_id,
-                        'practitionerName': row.practitioner_name,
+                        'practitionerName': row.practitioner_name or 'Unassigned',
                         'status': row.status,
                         'type': row.appointment_type,
                         'notes': row.notes
@@ -180,6 +193,9 @@ def get_calendar_events():
                 query = query.filter(Appointment.start_time >= start_dt)
             if end_dt:
                 query = query.filter(Appointment.start_time <= end_dt)
+            
+            # Only show non-cancelled appointments
+            query = query.filter(Appointment.status != 'cancelled')
                 
             appointments = query.all()
             
@@ -213,10 +229,17 @@ def get_calendar_events():
                     }
                 })
         
-        return jsonify(events)
+        logger.info(f"Returning {len(events)} calendar events")
+        return jsonify({'success': True, 'events': events})
     except Exception as e:
         logger.error(f"Error fetching calendar events: {e}", exc_info=True)
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            db.session.remove()
+        except:
+            pass
 
 @appointments_bp.route('/api/appointments', methods=['POST'])
 @login_required
@@ -743,7 +766,8 @@ def get_availability_blocks():
         
         # Get practitioners to show
         if practitioner_id:
-            practitioners = [User.query.get(int(practitioner_id))]
+            practitioner = User.query.filter_by(id=int(practitioner_id), is_active=True).first()
+            practitioners = [practitioner] if practitioner else []
         else:
             practitioners = User.query.filter_by(is_active=True).all()
         
@@ -756,21 +780,28 @@ def get_availability_blocks():
             pass
         
         for practitioner in practitioners:
+            if not practitioner:
+                continue
             try:
+                # Ensure practitioner ID is accessible
+                practitioner_id = int(practitioner.id) if hasattr(practitioner, 'id') else None
+                if not practitioner_id:
+                    continue
+                    
                 # Get all active patterns
                 patterns = AvailabilityPattern.query.filter_by(
-                    user_id=practitioner.id,
+                    user_id=practitioner_id,
                     is_active=True
                 ).all()
                 
                 # Get exceptions in date range
                 exceptions = AvailabilityException.query.filter(
-                    AvailabilityException.user_id == practitioner.id,
+                    AvailabilityException.user_id == practitioner_id,
                     AvailabilityException.exception_date >= start_date,
                     AvailabilityException.exception_date <= end_date
                 ).all()
             except Exception as e:
-                logger.error(f"Error loading patterns/exceptions for practitioner {practitioner.id}: {e}")
+                logger.error(f"Error loading patterns/exceptions for practitioner: {e}")
                 db.session.rollback()
                 continue  # Skip this practitioner
             
@@ -1540,21 +1571,78 @@ def manage_availability_exceptions():
     elif request.method == 'POST':
         try:
             data = request.get_json()
-            new_exception = AvailabilityException(
-                user_id=current_user.id,
-                exception_date=datetime.strptime(data.get('exception_date'), '%Y-%m-%d').date(),
-                exception_type=data.get('exception_type'),
-                is_all_day=data.get('is_all_day', False),
-                start_time=datetime.strptime(data.get('start_time'), '%H:%M').time() if data.get('start_time') else None,
-                end_time=datetime.strptime(data.get('end_time'), '%H:%M').time() if data.get('end_time') else None,
-                reason=data.get('reason')
-            )
-            db.session.add(new_exception)
+            is_range = data.get('is_range', False)
+            exceptions_created = []
+            
+            if is_range:
+                # Handle date range - create exception for each date
+                from_date = datetime.strptime(data.get('from_date'), '%Y-%m-%d').date()
+                to_date = datetime.strptime(data.get('to_date'), '%Y-%m-%d').date()
+                
+                current_date = from_date
+                while current_date <= to_date:
+                    # Check if exception already exists for this date and user
+                    existing = AvailabilityException.query.filter_by(
+                        user_id=current_user.id,
+                        exception_date=current_date
+                    ).first()
+                    
+                    if not existing:
+                        new_exception = AvailabilityException(
+                            user_id=current_user.id,
+                            exception_date=current_date,
+                            exception_type=data.get('exception_type', 'blocked'),
+                            is_all_day=data.get('is_all_day', True),
+                            start_time=datetime.strptime(data.get('start_time'), '%H:%M').time() if data.get('start_time') else None,
+                            end_time=datetime.strptime(data.get('end_time'), '%H:%M').time() if data.get('end_time') else None,
+                            reason=data.get('reason')
+                        )
+                        db.session.add(new_exception)
+                        exceptions_created.append(new_exception)
+                    
+                    current_date += timedelta(days=1)
+            else:
+                # Handle single date
+                exception_date = datetime.strptime(data.get('exception_date'), '%Y-%m-%d').date()
+                
+                # Check if exception already exists
+                existing = AvailabilityException.query.filter_by(
+                    user_id=current_user.id,
+                    exception_date=exception_date
+                ).first()
+                
+                if existing:
+                    return jsonify({'success': False, 'error': 'An exception already exists for this date'}), 400
+                
+                new_exception = AvailabilityException(
+                    user_id=current_user.id,
+                    exception_date=exception_date,
+                    exception_type=data.get('exception_type', 'blocked'),
+                    is_all_day=data.get('is_all_day', False),
+                    start_time=datetime.strptime(data.get('start_time'), '%H:%M').time() if data.get('start_time') else None,
+                    end_time=datetime.strptime(data.get('end_time'), '%H:%M').time() if data.get('end_time') else None,
+                    reason=data.get('reason')
+                )
+                db.session.add(new_exception)
+                exceptions_created.append(new_exception)
+            
             db.session.commit()
-            return jsonify({'success': True, 'message': 'Availability exception added', 'id': new_exception.id}), 201
+            
+            count = len(exceptions_created)
+            message = f'{count} date{"s" if count > 1 else ""} blocked successfully' if count > 0 else 'All dates were already blocked'
+            
+            return jsonify({
+                'success': True, 
+                'message': message, 
+                'count': count,
+                'ids': [ex.id for ex in exceptions_created]
+            }), 201
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error adding availability exception: {e}")
+            logger.error(f"Error adding availability exception: {e}", exc_info=True)
+            # Handle duplicate key error specifically
+            if 'duplicate key' in str(e).lower() or 'unique constraint' in str(e).lower():
+                return jsonify({'success': False, 'error': 'One or more dates are already blocked. Please refresh and try again.'}), 400
             return jsonify({'success': False, 'error': str(e)}), 500
 
 @appointments_bp.route('/api/availability-exceptions/<int:exception_id>', methods=['DELETE'])
@@ -1753,8 +1841,8 @@ def get_patient_appointments(patient_id):
             appointment_list.append({
                 'id': apt.id,
                 'title': apt.title,
-                'start_time': apt.start_time.isoformat(),
-                'end_time': apt.end_time.isoformat(),
+                'start_time': apt.start_time.isoformat() if apt.start_time else None,
+                'end_time': apt.end_time.isoformat() if apt.end_time else None,
                 'status': apt.status,
                 'type': apt.appointment_type,
                 'practitioner_name': apt.practitioner.full_name if apt.practitioner else 'Unassigned',
@@ -1763,8 +1851,14 @@ def get_patient_appointments(patient_id):
         
         return jsonify({'success': True, 'appointments': appointment_list})
     except Exception as e:
-        logger.error(f"Error fetching patient appointments: {e}")
+        logger.error(f"Error fetching patient appointments: {e}", exc_info=True)
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        try:
+            db.session.remove()
+        except:
+            pass
 
 @appointments_bp.route('/patients/<int:patient_id>/appointments', methods=['POST'])
 @login_required
@@ -1911,86 +2005,184 @@ def delete_patient_appointment(patient_id, appointment_id):
 @login_required
 def get_patient_sync_info(patient_id):
     """Get patient sync information (Withings, Cliniko)"""
-    patient = Patient.query.get_or_404(patient_id)
-    
-    withings_configured = bool(current_app.config.get('WITHINGS_CLIENT_ID') and current_app.config.get('WITHINGS_CLIENT_SECRET'))
-    cliniko_configured = bool(current_app.config.get('CLINIKO_API_KEY'))
-    
-    withings_status = {
-        'is_connected': False,
-        'last_sync': None,
-        'auth_url': None
-    }
-    
-    if withings_configured:
-        device = Device.query.filter_by(patient_id=patient_id, device_type='withings').first()
-        if device and device.access_token_expires_at and device.access_token_expires_at > datetime.utcnow():
-            withings_status['is_connected'] = True
-            withings_status['last_sync'] = device.last_sync_at.isoformat() if device.last_sync_at else None
-        else:
-            # Generate new auth URL
-            auth_manager = WithingsAuthManager(
-                client_id=current_app.config['WITHINGS_CLIENT_ID'],
-                consumer_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
-                callback_uri=current_app.config['WITHINGS_REDIRECT_URI']
+    try:
+        patient = Patient.query.get_or_404(patient_id)
+        
+        withings_configured = bool(current_app.config.get('WITHINGS_CLIENT_ID') and current_app.config.get('WITHINGS_CLIENT_SECRET'))
+        cliniko_configured = bool(current_app.config.get('CLINIKO_API_KEY'))
+        
+        withings_status = {
+            'is_connected': False,
+            'last_sync': None,
+            'auth_url': None,
+            'last_record': None
+        }
+        
+        if withings_configured:
+            # Check if patient has valid Withings token
+            has_valid_token = (
+                patient.withings_access_token and 
+                patient.withings_token_expiry and 
+                patient.withings_token_expiry > datetime.utcnow()
             )
-            withings_status['auth_url'] = auth_manager.get_authorize_url(patient_id)
-    
-    cliniko_status = {
-        'is_connected': bool(patient.cliniko_patient_id),
-        'last_sync': patient.cliniko_last_sync_at.isoformat() if patient.cliniko_last_sync_at else None
-    }
-    
-    return jsonify({
-        'success': True,
-        'withings': withings_status,
-        'cliniko': cliniko_status
-    })
+            
+            if has_valid_token:
+                withings_status['is_connected'] = True
+                
+                # Get last sync from patient's last_synced_at or from last HealthData record
+                if patient.last_synced_at:
+                    withings_status['last_sync'] = patient.last_synced_at.isoformat()
+                
+                # Get last health data record timestamp
+                last_record = HealthData.query.filter_by(patient_id=patient_id).order_by(HealthData.timestamp.desc()).first()
+                if last_record:
+                    withings_status['last_record'] = {
+                        'timestamp': last_record.timestamp.isoformat(),
+                        'measurement_type': last_record.measurement_type,
+                        'value': float(last_record.value) if last_record.value else None
+                    }
+            else:
+                # Generate new auth URL
+                # CRITICAL: Force production redirect URI - must be HTTPS
+                production_redirect_uri = 'https://capturecare-310697189983.australia-southeast2.run.app/withings/callback'
+                redirect_uri = current_app.config.get('WITHINGS_REDIRECT_URI', production_redirect_uri)
+                if 'localhost' in redirect_uri or not redirect_uri.startswith('https://'):
+                    redirect_uri = production_redirect_uri
+                
+                try:
+                    auth_manager = WithingsAuthManager(
+                        client_id=current_app.config['WITHINGS_CLIENT_ID'],
+                        client_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
+                        redirect_uri=redirect_uri
+                    )
+                    withings_status['auth_url'] = auth_manager.get_authorization_url(patient_id)
+                except Exception as e:
+                    logger.error(f"Error generating Withings auth URL: {e}", exc_info=True)
+                    withings_status['auth_url'] = None
+        
+        cliniko_status = {
+            'is_connected': bool(patient.cliniko_patient_id),
+            'last_sync': patient.cliniko_last_sync_at.isoformat() if patient.cliniko_last_sync_at else None
+        }
+        
+        return jsonify({
+            'success': True,
+            'withings': withings_status,
+            'cliniko': cliniko_status
+        })
+    except Exception as e:
+        logger.error(f"Error fetching sync info for patient {patient_id}: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        db.session.remove()
 
 @appointments_bp.route('/patients/<int:patient_id>/sync', methods=['POST'])
 @login_required
 def sync_patient_data(patient_id):
     """Manually trigger data sync for a patient (Withings, Cliniko)"""
-    patient = Patient.query.get_or_404(patient_id)
-    sync_type = request.json.get('sync_type') # 'withings' or 'cliniko'
-    
-    if sync_type == 'withings':
-        try:
-            synchronizer = HealthDataSynchronizer(patient.id)
-            new_data_count = synchronizer.sync_withings_data()
-            patient.last_synced_at = datetime.utcnow()
-            db.session.commit()
-            return jsonify({'success': True, 'message': f'Withings data synced. New records: {new_data_count}'})
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error syncing Withings data for patient {patient_id}: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
-    
-    elif sync_type == 'cliniko':
-        try:
-            cliniko_integration = ClinikoIntegration(
-                api_key=current_app.config['CLINIKO_API_KEY'],
-                shard=current_app.config['CLINIKO_SHARD']
-            )
-            if not patient.cliniko_patient_id:
-                # Try to match patient first
-                cliniko_id = cliniko_integration.match_patient(patient)
-                if cliniko_id:
-                    patient.cliniko_patient_id = cliniko_id
+    try:
+        patient = Patient.query.get_or_404(patient_id)
+        
+        # Handle both JSON and FormData
+        if request.is_json:
+            data = request.json or {}
+            sync_type = data.get('sync_type', 'withings')
+            full_sync = data.get('full_sync', False)
+            send_email = data.get('send_email', False)
+        else:
+            # Handle FormData
+            sync_type = request.form.get('sync_type', 'withings')
+            full_sync = request.form.get('full_sync', 'false').lower() == 'true'
+            send_email = request.form.get('send_email', 'false').lower() == 'true'
+        
+        if sync_type == 'withings':
+            try:
+                # Initialize synchronizer with config dict
+                config_dict = {
+                    'WITHINGS_CLIENT_ID': current_app.config.get('WITHINGS_CLIENT_ID', ''),
+                    'WITHINGS_CLIENT_SECRET': current_app.config.get('WITHINGS_CLIENT_SECRET', ''),
+                    'WITHINGS_REDIRECT_URI': current_app.config.get('WITHINGS_REDIRECT_URI', ''),
+                    'GOOGLE_SHEETS_CREDENTIALS': current_app.config.get('GOOGLE_SHEETS_CREDENTIALS', ''),
+                    'GOOGLE_SHEET_ID': current_app.config.get('GOOGLE_SHEET_ID', ''),
+                    'OPENAI_API_KEY': current_app.config.get('OPENAI_API_KEY', ''),
+                    'SMTP_SERVER': current_app.config.get('SMTP_SERVER', ''),
+                    'SMTP_PORT': current_app.config.get('SMTP_PORT', 587),
+                    'SMTP_USERNAME': current_app.config.get('SMTP_USERNAME', ''),
+                    'SMTP_PASSWORD': current_app.config.get('SMTP_PASSWORD', ''),
+                    'SMTP_FROM_EMAIL': current_app.config.get('SMTP_FROM_EMAIL', '')
+                }
+                synchronizer = HealthDataSynchronizer(config_dict)
+                
+                # Determine sync range
+                startdate = None
+                if not full_sync:
+                    # Get last sync date
+                    last_record = HealthData.query.filter_by(patient_id=patient_id).order_by(HealthData.timestamp.desc()).first()
+                    if last_record:
+                        # Start 1 day before last record
+                        startdate = last_record.timestamp - timedelta(days=1)
+                
+                # Sync patient data
+                result = synchronizer.sync_patient_data(
+                    patient_id=patient_id,
+                    days_back=365 if full_sync else 7,
+                    startdate=startdate,
+                    send_email=send_email
+                )
+                
+                if result.get('success'):
+                    patient.last_synced_at = datetime.utcnow()
                     db.session.commit()
+                    return jsonify({
+                        'success': True,
+                        'message': result.get('message', 'Withings data synced successfully'),
+                        'measurements': result.get('measurements', 0),
+                        'activities': result.get('activities', 0),
+                        'sleep': result.get('sleep', 0),
+                        'devices': result.get('devices', 0),
+                        'total': result.get('measurements', 0) + result.get('activities', 0) + result.get('sleep', 0)
+                    })
                 else:
-                    return jsonify({'success': False, 'error': 'Patient not linked to Cliniko and no match found'}), 400
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': result.get('error', 'Sync failed')}), 500
+                    
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Error syncing Withings data for patient {patient_id}: {e}", exc_info=True)
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        elif sync_type == 'cliniko':
+            try:
+                cliniko_integration = ClinikoIntegration(
+                    api_key=current_app.config['CLINIKO_API_KEY'],
+                    shard=current_app.config['CLINIKO_SHARD']
+                )
+                if not patient.cliniko_patient_id:
+                    # Try to match patient first
+                    cliniko_id = cliniko_integration.match_patient(patient)
+                    if cliniko_id:
+                        patient.cliniko_patient_id = cliniko_id
+                        db.session.commit()
+                    else:
+                        return jsonify({'success': False, 'error': 'Patient not linked to Cliniko and no match found'}), 400
+                
+                notes_count = cliniko_integration.sync_treatment_notes(patient)
+                patient.cliniko_last_sync_at = datetime.utcnow()
+                db.session.commit()
+                return jsonify({'success': True, 'message': f'Cliniko notes synced. New notes: {notes_count}'})
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Error syncing Cliniko data for patient {patient_id}: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        else:
+            return jsonify({'success': False, 'error': 'Invalid sync type'}), 400
             
-            notes_count = cliniko_integration.sync_treatment_notes(patient)
-            patient.cliniko_last_sync_at = datetime.utcnow()
-            db.session.commit()
-            return jsonify({'success': True, 'message': f'Cliniko notes synced. New notes: {notes_count}'})
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error syncing Cliniko data for patient {patient_id}: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
-    
-    return jsonify({'success': False, 'error': 'Invalid sync type'}), 400
+    except Exception as e:
+        logger.error(f"Error in sync_patient_data for patient {patient_id}: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @appointments_bp.route('/patients/<int:patient_id>/report', methods=['GET', 'POST'])
 @login_required
@@ -2207,12 +2399,18 @@ def authorize_withings(patient_id):
     """Initiate Withings OAuth flow for a patient"""
     patient = Patient.query.get_or_404(patient_id)
     try:
+        # CRITICAL: Force production redirect URI - must be HTTPS
+        production_redirect_uri = 'https://capturecare-3ecstuprbq-km.a.run.app/withings/callback'
+        redirect_uri = current_app.config.get('WITHINGS_REDIRECT_URI', production_redirect_uri)
+        if 'localhost' in redirect_uri or not redirect_uri.startswith('https://'):
+            redirect_uri = production_redirect_uri
+        
         auth_manager = WithingsAuthManager(
             client_id=current_app.config['WITHINGS_CLIENT_ID'],
-            consumer_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
-            callback_uri=current_app.config['WITHINGS_REDIRECT_URI']
+            client_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
+            redirect_uri=redirect_uri
         )
-        authorize_url = auth_manager.get_authorize_url(patient_id)
+        authorize_url = auth_manager.get_authorization_url(patient_id)
         return redirect(authorize_url)
     except Exception as e:
         logger.error(f"Error initiating Withings OAuth for patient {patient_id}: {e}")
@@ -2229,28 +2427,207 @@ def send_withings_email(patient_id):
         return jsonify({'success': False, 'error': 'Patient does not have an email address.'}), 400
     
     try:
+        # CRITICAL: Force production redirect URI - must be HTTPS and match production URL
+        production_redirect_uri = 'https://capturecare-310697189983.australia-southeast2.run.app/withings/callback'
+        
+        # Use production URI, fallback to config if needed
+        redirect_uri = current_app.config.get('WITHINGS_REDIRECT_URI', production_redirect_uri)
+        
+        # Ensure it's HTTPS and production URL (override any localhost/env issues)
+        if 'localhost' in redirect_uri or not redirect_uri.startswith('https://'):
+            logger.warning(f"Withings redirect_uri was {redirect_uri}, overriding to production URL")
+            redirect_uri = production_redirect_uri
+        
+        logger.info(f"Using Withings redirect_uri: {redirect_uri}")
+        
         auth_manager = WithingsAuthManager(
             client_id=current_app.config['WITHINGS_CLIENT_ID'],
-            consumer_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
-            callback_uri=current_app.config['WITHINGS_REDIRECT_URI']
+            client_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
+            redirect_uri=redirect_uri
         )
-        authorize_url = auth_manager.get_authorize_url(patient_id)
+        authorize_url = auth_manager.get_authorization_url(patient_id)
         
-        email_sender = EmailSender(
-            smtp_server=current_app.config['SMTP_SERVER'],
-            smtp_port=current_app.config['SMTP_PORT'],
-            smtp_username=current_app.config['SMTP_USERNAME'],
-            smtp_password=current_app.config['SMTP_PASSWORD'],
-            smtp_from_email=current_app.config['SMTP_FROM_EMAIL']
-        )
+        # CRITICAL: Double-check the authorize_url doesn't contain localhost
+        if 'localhost' in authorize_url:
+            logger.error(f"❌ CRITICAL ERROR: localhost found in authorize_url after generation!")
+            logger.error(f"   authorize_url: {authorize_url}")
+            logger.error(f"   redirect_uri used: {redirect_uri}")
+            # Force replace localhost in the URL
+            authorize_url = authorize_url.replace('localhost:5000', 'capturecare-3ecstuprbq-km.a.run.app')
+            authorize_url = authorize_url.replace('http://', 'https://')
+            logger.warning(f"   Fixed authorize_url: {authorize_url}")
+        
+        # Log the authorize URL to verify it's correct
+        logger.info(f"📧 Generated Withings authorization URL for patient {patient_id}: {authorize_url}")
+        logger.info(f"   Redirect URI in URL: {redirect_uri}")
+        if 'localhost' in authorize_url:
+            logger.error(f"❌ ERROR: localhost found in authorize_url! URL: {authorize_url}")
         
         subject = "Connect your Withings account to CaptureCare"
-        body = render_template('emails/withings_invite.html', patient=patient, authorize_url=authorize_url)
         
-        email_sender.send_email(patient.email, subject, body)
+        # Force template reload and verify it's being used
+        try:
+            # Check if template file exists
+            template_path = os.path.join(current_app.root_path, 'templates', 'emails', 'withings_invite.html')
+            logger.info(f"📧 Looking for template at: {template_path}")
+            if os.path.exists(template_path):
+                logger.info(f"✅ Template file exists")
+            else:
+                logger.error(f"❌ Template file NOT FOUND at: {template_path}")
+            
+            # Clear template cache if in debug mode
+            if current_app.config.get('DEBUG'):
+                current_app.jinja_env.cache = None
+            
+            logger.info(f"📧 Rendering template: emails/withings_invite.html")
+            logger.info(f"   Patient: {patient.first_name} {patient.last_name}")
+            logger.info(f"   Authorize URL (first 100 chars): {authorize_url[:100]}")
+            
+            body_html = render_template('emails/withings_invite.html', patient=patient, authorize_url=authorize_url)
+            logger.info(f"📧 Template rendered, body length: {len(body_html)}")
+            logger.info(f"   Body contains 'CONNECT TO YOUR WITHINGS DEVICE': {'CONNECT TO YOUR WITHINGS DEVICE' in body_html}")
+            logger.info(f"   Body contains 'authorize_url': {'authorize_url' in body_html}")
+            
+            # Verify the template was rendered correctly
+            if 'CONNECT TO YOUR WITHINGS DEVICE' not in body_html:
+                logger.error(f"❌ Template not rendered correctly! Button text missing.")
+                logger.error(f"   Body preview (first 1000 chars): {body_html[:1000]}")
+                # Fallback to inline HTML with correct button text
+                body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .email-container {{ background-color: #ffffff; border-radius: 8px; padding: 40px; }}
+        .header {{ text-align: center; margin-bottom: 30px; }}
+        .logo {{ font-size: 24px; font-weight: bold; color: #00698f; }}
+        h1 {{ color: #00698f; font-size: 28px; text-align: center; }}
+        .button-container {{ text-align: center; margin: 40px 0; }}
+        .connect-button {{
+            display: inline-block;
+            background-color: #00698f;
+            color: #ffffff !important;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="logo">CaptureCare®</div>
+            <p>Humanising Digital Health</p>
+        </div>
+        <h1>Connect Your Withings Device</h1>
+        <p>Hello {patient.first_name},</p>
+        <p>Your healthcare provider has requested that you connect your Withings device to your CaptureCare account.</p>
+        <div class="button-container">
+            <a href="{authorize_url}" class="connect-button" style="color: #ffffff; text-decoration: none;">
+                CONNECT TO YOUR WITHINGS DEVICE
+            </a>
+        </div>
+        <p style="font-size: 12px; color: #666; word-break: break-all;">If the button doesn't work, copy this link: {authorize_url}</p>
+    </div>
+</body>
+</html>
+"""
+            else:
+                logger.info(f"✅ Template rendered successfully with correct button text")
+        except Exception as e:
+            logger.error(f"❌ Error rendering template: {e}", exc_info=True)
+            # Fallback HTML
+            body_html = f"<html><body><h1>Connect Your Withings Device</h1><p>Hello {patient.first_name},</p><p><a href='{authorize_url}' style='background-color: #00698f; color: white; padding: 16px 32px; text-decoration: none; border-radius: 6px; font-weight: bold;'>CONNECT TO YOUR WITHINGS DEVICE</a></p></body></html>"
+        
+        # Use NotificationService which has send_email method for HTML emails
+        from notification_service import NotificationService
+        notification_service = NotificationService()
+        
+        body_text = f"Hello {patient.first_name},\n\nYour healthcare provider has requested that you connect your Withings device to your CaptureCare account.\n\nClick this link to authorize: {authorize_url}\n\nIf the link doesn't work, copy and paste it into your browser."
+        
+        email_sent = notification_service.send_email(
+            to_email=patient.email,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            patient_id=patient_id,
+            user_id=current_user.id if current_user.is_authenticated else None,
+            log_correspondence=True
+        )
+        
+        if not email_sent:
+            raise Exception("Failed to send email via NotificationService")
         
         return jsonify({'success': True, 'message': 'Withings authorization email sent successfully.'})
     except Exception as e:
         logger.error(f"Error sending Withings authorization email to patient {patient_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@appointments_bp.route('/withings/callback')
+def withings_callback():
+    """Callback for Withings OAuth"""
+    code = request.args.get('code')
+    state = request.args.get('state')
+    
+    if not code:
+        flash('Authorization failed - no code received', 'error')
+        return redirect(url_for('appointments.master_calendar'))
+    
+    try:
+        # CRITICAL: Force production redirect URI - must match the one used in authorization
+        production_redirect_uri = 'https://capturecare-3ecstuprbq-km.a.run.app/withings/callback'
+        redirect_uri = current_app.config.get('WITHINGS_REDIRECT_URI', production_redirect_uri)
+        if 'localhost' in redirect_uri or not redirect_uri.startswith('https://'):
+            redirect_uri = production_redirect_uri
+        
+        # Initialize auth manager
+        auth_manager = WithingsAuthManager(
+            client_id=current_app.config['WITHINGS_CLIENT_ID'],
+            client_secret=current_app.config['WITHINGS_CLIENT_SECRET'],
+            redirect_uri=redirect_uri
+        )
+        
+        credentials = auth_manager.get_credentials(code, state)
+        
+        # Logic to get patient_id
+        patient_id = None
+        if state:
+             if '_' in state:
+                 try:
+                     patient_id = int(state.split('_')[0])
+                 except ValueError:
+                     pass
+        
+        if not patient_id:
+             # Fallback to session
+             patient_id = session.get('patient_id')
+             
+        if not patient_id:
+            flash('Unable to identify patient', 'error')
+            return redirect(url_for('appointments.master_calendar'))
+        
+        auth_manager.save_tokens(patient_id, credentials)
+        
+        flash('Withings device authorized successfully!', 'success')
+        return redirect(url_for('patients.patient_detail', patient_id=patient_id))
+    
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Withings callback error: {error_msg}")
+        
+        if "Scope has changed" in error_msg or "scope" in error_msg.lower():
+            if 'patient_id' in locals() and patient_id:
+                 auth_manager.reset_patient_connection(patient_id)
+            flash('Scope configuration changed. Please go to https://account.withings.com/partner/apps and revoke "CaptureCare" app, then click Connect Withings again.', 'warning')
+        else:
+            flash(f'Authorization error: {error_msg}', 'error')
+        
+        if 'patient_id' in locals() and patient_id:
+            return redirect(url_for('patients.patient_detail', patient_id=patient_id))
+        else:
+            return redirect(url_for('appointments.master_calendar'))
 

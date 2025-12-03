@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to CaptureCare Patient App</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .email-container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00698f;
+            margin-bottom: 10px;
+        }
+        .tagline {
+            color: #96b7c8;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        h1 {
+            color: #00698f;
+            font-size: 28px;
+            margin: 0 0 20px 0;
+            text-align: center;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        p {
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #555;
+        }
+        .credentials-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #00698f;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+        }
+        .credentials-box p {
+            margin: 8px 0;
+            font-size: 15px;
+        }
+        .credentials-box strong {
+            color: #00698f;
+            display: inline-block;
+            min-width: 80px;
+        }
+        .button-container {
+            text-align: center;
+            margin: 40px 0;
+        }
+        .download-button {
+            display: inline-block;
+            background-color: #00698f;
+            color: #ffffff !important;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background-color 0.3s;
+        }
+        .download-button:hover {
+            background-color: #005a7a;
+        }
+        .app-store-badge {
+            display: inline-block;
+            margin-top: 15px;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 14px;
+            color: #999;
+        }
+        .security-note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .security-note p {
+            margin: 0;
+            font-size: 14px;
+            color: #856404;
+        }
+        .info-box {
+            background-color: #e7f3ff;
+            border-left: 4px solid #00698f;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-box p {
+            margin: 0;
+            font-size: 14px;
+            color: #004085;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="logo">CaptureCare®</div>
+            <p class="tagline">Humanising Digital Health</p>
+        </div>
+        
+        <h1>Welcome to CaptureCare Patient App</h1>
+        
+        <div class="content">
+            <p>Hello {{ patient.first_name }},</p>
+            
+            <p>You've been invited to use the <strong>CaptureCare patient app</strong>! This app allows you to:</p>
+            
+            <ul style="color: #555; font-size: 16px; line-height: 1.8;">
+                <li>View your health data and trends</li>
+                <li>Track your health metrics over time</li>
+                <li>Stay connected with your healthcare team</li>
+                <li>Access your health reports and insights</li>
+            </ul>
+        </div>
+        
+        <div class="credentials-box">
+            <p style="font-weight: bold; color: #00698f; margin-bottom: 15px; font-size: 16px;">Your Login Credentials:</p>
+            <p><strong>Email:</strong> {{ patient.email }}</p>
+            <p><strong>Password:</strong> {{ temp_password }}</p>
+        </div>
+        
+        <div class="security-note">
+            <p><strong>🔒 Security Note:</strong> Please change your password after signing in for the first time. This temporary password is for initial access only.</p>
+        </div>
+        
+        <div class="button-container">
+            <a href="{{ app_store_url }}" class="download-button" style="color: #ffffff; text-decoration: none;">
+                📱 DOWNLOAD THE APP
+            </a>
+        </div>
+        
+        <div class="info-box">
+            <p><strong>💡 Getting Started:</strong> After downloading the app, use the credentials above to sign in. You'll be prompted to change your password on first login.</p>
+        </div>
+        
+        <div class="content">
+            <p>If the button doesn't work, you can copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; font-size: 12px; color: #666; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">{{ app_store_url }}</p>
+        </div>
+        
+        <div class="footer">
+            <p>This email was sent by CaptureCare on behalf of your healthcare provider.</p>
+            <p>If you did not expect this email, please contact your healthcare provider.</p>
+            <p style="margin-top: 15px; font-size: 12px;">&copy; {{ current_year }} CaptureCare Health System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+

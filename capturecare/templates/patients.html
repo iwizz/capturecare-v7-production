@@ -15,7 +15,7 @@
                 <i class="fas fa-download mr-2"></i>Import from Cliniko
             </button>
         </form>
-        <a href="{{ url_for('add_patient') }}" 
+        <a href="{{ url_for('patients.add_patient') }}" 
            class="bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
             <i class="fas fa-user-plus mr-2"></i>Add Patient
         </a>
@@ -101,7 +101,7 @@
         <div class="text-center py-12">
             <i class="fas fa-user-slash text-6xl text-gray-300 mb-4"></i>
             <p class="text-gray-600 text-lg mb-6">No patients found</p>
-            <a href="{{ url_for('add_patient') }}" 
+            <a href="{{ url_for('patients.add_patient') }}" 
                class="inline-block bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
                 <i class="fas fa-plus mr-2"></i>Add Your First Patient
             </a>

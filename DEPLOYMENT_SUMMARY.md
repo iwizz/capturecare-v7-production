@@ -132,3 +132,4 @@ If you need to rollback:
 
 Once you run the setup endpoint (Step 2 above), the system will be fully operational and reminders will start sending automatically!
 
+

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Your Withings Device</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .email-container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00698f;
+            margin-bottom: 10px;
+        }
+        .tagline {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        p {
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #555;
+        }
+        .features {
+            background-color: #f8f9fa;
+            border-left: 4px solid #00698f;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .features ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .features li {
+            margin-bottom: 8px;
+            color: #555;
+        }
+        .button-container {
+            text-align: center;
+            margin: 40px 0;
+        }
+        .connect-button {
+            display: inline-block;
+            background-color: #00698f;
+            color: #ffffff !important;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background-color 0.3s;
+        }
+        .connect-button:hover {
+            background-color: #005a7a;
+        }
+        .next-steps {
+            background-color: #f0f8ff;
+            border-left: 4px solid #00698f;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .next-steps ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .next-steps li {
+            margin-bottom: 8px;
+            color: #555;
+        }
+        .security-note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .security-note p {
+            margin: 0;
+            font-size: 14px;
+            color: #856404;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 14px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="logo">CaptureCare®</div>
+            <div class="tagline">Humanising Digital Health</div>
+        </div>
+        
+        <div class="content">
+            <p>Hi {{ patient.first_name }},</p>
+            
+            <p>We're excited to help you track your health data! To get started, we need to connect your Withings device to your CaptureCare account.</p>
+            
+            <div class="features">
+                <p><strong>📊 What You'll Get</strong></p>
+                <ul>
+                    <li>Real-time health monitoring</li>
+                    <li>AI-powered health insights</li>
+                    <li>Personalized health reports</li>
+                    <li>Secure data synchronization</li>
+                </ul>
+            </div>
+            
+            <p>Click the button below to securely connect your Withings account:</p>
+        </div>
+        
+        <div class="button-container">
+            <a href="{{ authorize_url }}" class="connect-button" style="color: #ffffff; text-decoration: none;">
+                🔗 Connect Your Withings Device
+            </a>
+        </div>
+        
+        <div class="next-steps">
+            <p><strong>📝 What Happens Next?</strong></p>
+            <ol>
+                <li>Click the button above</li>
+                <li>Log into your Withings account</li>
+                <li>Authorize CaptureCare to access your health data</li>
+                <li>You'll be redirected back to CaptureCare automatically</li>
+            </ol>
+        </div>
+        
+        <div class="security-note">
+            <p><strong>Security Note:</strong> Your data is encrypted and securely stored. We only access the health information you authorize, and you can disconnect your device at any time.</p>
+        </div>
+        
+        <div class="content">
+            <p>Need help? Contact our support team</p>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2025 CaptureCare. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

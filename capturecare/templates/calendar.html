@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', function() {
         headerToolbar: {
             left: 'prev,next today',
             center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+            right: '' // Removed view selector - using custom buttons instead
         },
         editable: true,
         droppable: true,
@@ -310,16 +310,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     })
                     .then(data => {
-                        if (data && data.success && data.events) {
+                        // Handle both array and object responses
+                        const events = Array.isArray(data) ? data : (data && data.success ? data.events : []);
+                        if (events && events.length > 0) {
                             // Filter events based on active practitioners
-                            const filteredEvents = data.events.filter(event => {
+                            const filteredEvents = events.filter(event => {
                                 if (activePractitioners.size === 0) return true;
                                 const practId = event.extendedProps?.practitioner_id;
                                 return practId && activePractitioners.has(practId.toString());
                             });
+                            console.log(`📅 FullCalendar: Loaded ${filteredEvents.length} filtered events`);
                             successCallback(filteredEvents);
                         } else {
-                            console.warn('API returned non-success or missing events:', data?.error || data?.message || 'Unknown error');
+                            console.warn('API returned no events:', data?.error || data?.message || 'Unknown error');
                             successCallback([]); // Return empty array instead of calling failureCallback
                         }
                     })
@@ -496,9 +499,11 @@ function setMonthStart(date) {
 function previousPeriod() {
     if (currentView === 'week') {
         currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+        updatePeriodDisplay();
         loadWeekGrid();
     } else if (currentView === 'month') {
         currentMonthStart.setMonth(currentMonthStart.getMonth() - 1);
+        updatePeriodDisplay();
         loadMonthGrid();
     } else {
         if (calendar) calendar.prev();
@@ -508,9 +513,11 @@ function previousPeriod() {
 function nextPeriod() {
     if (currentView === 'week') {
         currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+        updatePeriodDisplay();
         loadWeekGrid();
     } else if (currentView === 'month') {
         currentMonthStart.setMonth(currentMonthStart.getMonth() + 1);
+        updatePeriodDisplay();
         loadMonthGrid();
     } else {
         if (calendar) calendar.next();
@@ -625,9 +632,11 @@ async function loadWeekGrid() {
             throw new Error(`HTTP ${eventsResponse.status}: ${eventsResponse.statusText}`);
         }
         const eventsData = await eventsResponse.json();
-        if (eventsData.success) {
-            console.log(`📅 Week view: Loaded ${eventsData.events.length} appointments from API`);
-            eventsData.events.forEach(event => {
+        // Handle both array response and object response
+        const events = Array.isArray(eventsData) ? eventsData : (eventsData.success ? eventsData.events : []);
+        if (events && events.length > 0) {
+            console.log(`📅 Week view: Loaded ${events.length} appointments from API`);
+            events.forEach(event => {
                 const practId = event.extendedProps?.practitioner_id;
                 // Show appointments if no practitioners are selected OR if practitioner is in active set
                 const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
@@ -1093,9 +1102,11 @@ async function loadMonthGrid() {
         try {
             const eventsResponse = await fetch(`/api/calendar/events?start=${startDateStr}&end=${endDateStr}`);
             const eventsData = await eventsResponse.json();
-            if (eventsData.success) {
-                console.log(`📅 Month view: Loaded ${eventsData.events.length} appointments from API (${startDateStr} to ${endDateStr})`);
-                eventsData.events.forEach(event => {
+            // Handle both array response and object response
+            const events = Array.isArray(eventsData) ? eventsData : (eventsData.success ? eventsData.events : []);
+            if (events && events.length > 0) {
+                console.log(`📅 Month view: Loaded ${events.length} appointments from API (${startDateStr} to ${endDateStr})`);
+                events.forEach(event => {
                 const practId = event.extendedProps?.practitioner_id;
                 // Show appointments if no practitioners are selected OR if practitioner is in active set
                 const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
@@ -1105,13 +1116,29 @@ async function loadMonthGrid() {
                     const dateStr = startDate.toISOString().split('T')[0];
                     
                     if (!appointmentsData[dateStr]) appointmentsData[dateStr] = [];
+                    
+                    // Get practitioner initials
+                    const practitionerName = event.extendedProps?.practitioner_name || 'Unknown Practitioner';
+                    const nameParts = practitionerName.split(' ');
+                    const initials = nameParts.length >= 2 
+                        ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+                        : practitionerName.substring(0, 2).toUpperCase();
+                    
+                    // Calculate duration in 30-min slots
+                    const startTime = new Date(event.start);
+                    const endTime = new Date(event.end);
+                    const durationMinutes = (endTime - startTime) / (1000 * 60);
+                    const slotCount = Math.max(1, Math.round(durationMinutes / 30));
+                    
                     appointmentsData[dateStr].push({
                         time: startDate.toTimeString().slice(0, 5),
                         patientName: event.extendedProps?.patient_name || 'Unknown Patient',
-                        practitionerName: event.extendedProps?.practitioner_name || 'Unknown Practitioner',
+                        practitionerName: practitionerName,
+                        practitionerInitials: initials,
                         practitionerId: practId,
                         title: event.title,
-                        color: practitionerColors[practId] || '#3b82f6'
+                        color: practitionerColors[practId] || '#3b82f6',
+                        slotCount: slotCount
                     });
                 }
             });
@@ -1254,17 +1281,27 @@ async function loadMonthGrid() {
         // Circles container
         html += '<div class="flex flex-wrap gap-1 items-center justify-center min-h-[60px]">';
         
-        // Show availability circles (green)
+        // Show availability rectangles with practitioner initials and slot count
         availability.forEach(avail => {
             const uniqueId = `avail-${dateStr}-${avail.practitionerId}`;
+            const nameParts = avail.practitionerName.split(' ');
+            const initials = nameParts.length >= 2 
+                ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+                : avail.practitionerName.substring(0, 2).toUpperCase();
+            const slotCount = avail.slotCount || 0;
             html += `<div class="relative group/circle">
-                <div class="w-6 h-6 rounded-full ${avail.slotCount > 10 ? 'bg-green-500' : avail.slotCount > 5 ? 'bg-green-400' : 'bg-green-300'} border-2 border-white shadow-sm hover:scale-125 transition-transform cursor-pointer"
-                    style="background-color: ${avail.color};"
+                <div class="w-8 h-6 rounded ${avail.slotCount > 10 ? 'bg-green-500' : avail.slotCount > 5 ? 'bg-green-400' : 'bg-green-300'} border-2 border-white shadow-sm hover:scale-110 transition-transform cursor-pointer flex items-center justify-center text-white text-[10px] font-bold"
+                    style="background-color: ${avail.color || '#10b981'};"
                     data-practitioner="${avail.practitionerName}"
                     data-practitioner-id="${avail.practitionerId}"
                     data-slots="${avail.slotCount}"
                     data-date="${dateStr}"
-                    onclick="event.stopPropagation(); createAppointmentFromAvailability('${dateStr}', ${avail.practitionerId}, '${avail.practitionerName}');">
+                    onclick="event.stopPropagation(); createAppointmentFromAvailability('${dateStr}', ${avail.practitionerId}, '${avail.practitionerName}');"
+                    title="${avail.practitionerName} - ${slotCount} slot${slotCount !== 1 ? 's' : ''} available">
+                    <div class="text-center leading-tight">
+                        <div class="text-[9px]">${initials}</div>
+                        <div class="text-[8px] opacity-90">${slotCount}</div>
+                    </div>
                 </div>
                 <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover/circle:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none">
                     <div class="font-semibold">${avail.practitionerName}</div>
@@ -1277,22 +1314,30 @@ async function loadMonthGrid() {
             </div>`;
         });
         
-        // Show appointment circles (blue)
+        // Show appointment rectangles with practitioner initials and slot count
         appointments.forEach((apt, index) => {
             const uniqueId = `apt-${dateStr}-${index}`;
+            const initials = apt.practitionerInitials || (apt.practitionerName ? apt.practitionerName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
+            const slotCount = apt.slotCount || 1;
             html += `<div class="relative group/circle">
-                <div class="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow-sm hover:scale-125 transition-transform cursor-pointer"
-                    style="background-color: ${apt.color};"
+                <div class="w-8 h-6 rounded bg-blue-500 border-2 border-white shadow-sm hover:scale-110 transition-transform cursor-pointer flex items-center justify-center text-white text-[10px] font-bold"
+                    style="background-color: ${apt.color || '#3b82f6'};"
                     data-patient="${apt.patientName}"
                     data-practitioner="${apt.practitionerName}"
                     data-time="${apt.time}"
                     data-title="${apt.title}"
-                    data-date="${dateStr}">
+                    data-date="${dateStr}"
+                    title="${apt.practitionerName} - ${slotCount} slot${slotCount !== 1 ? 's' : ''}">
+                    <div class="text-center leading-tight">
+                        <div class="text-[9px]">${initials}</div>
+                        <div class="text-[8px] opacity-90">${slotCount}</div>
+                    </div>
                 </div>
                 <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover/circle:block z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl pointer-events-none max-w-[200px]">
                     <div class="font-semibold text-blue-300">${apt.patientName}</div>
                     <div class="text-gray-300 text-[10px]">${apt.practitionerName}</div>
                     <div class="text-gray-400 text-[10px]">${apt.time} - ${apt.title}</div>
+                    <div class="text-gray-400 text-[10px]">${slotCount} slot${slotCount !== 1 ? 's' : ''} (${slotCount * 30} min)</div>
                     <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
                         <div class="border-4 border-transparent border-t-gray-900"></div>
                     </div>

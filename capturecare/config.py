@@ -137,9 +137,16 @@ class Config:
     SESSION_COOKIE_NAME = 'capturecare_session'
     SESSION_TYPE = 'filesystem'
     
+    # Force HTTPS for URL generation
+    PREFERRED_URL_SCHEME = 'https'
+
+    # Cache Configuration
+    CACHE_TYPE = 'SimpleCache'
+    CACHE_DEFAULT_TIMEOUT = 300
+    
     WITHINGS_CLIENT_ID = os.getenv('WITHINGS_CLIENT_ID', '')
     WITHINGS_CLIENT_SECRET = os.getenv('WITHINGS_CLIENT_SECRET', '')
-    WITHINGS_REDIRECT_URI = os.getenv('WITHINGS_REDIRECT_URI', 'http://localhost:5000/withings/callback')
+    WITHINGS_REDIRECT_URI = os.getenv('WITHINGS_REDIRECT_URI', 'https://capturecare-310697189983.australia-southeast2.run.app/withings/callback')
     
     CLINIKO_API_KEY = os.getenv('CLINIKO_API_KEY', '')
     CLINIKO_SHARD = os.getenv('CLINIKO_SHARD', 'au1')
@@ -159,7 +166,7 @@ class Config:
     # Public Base URL for patient-facing links (video rooms, webhooks, etc.)
     # For local development with external access, use ngrok or your public IP
     # Example: https://your-ngrok-url.ngrok.io or https://your-domain.com
-    BASE_URL = os.getenv('BASE_URL', os.getenv('PUBLIC_URL', ''))
+    BASE_URL = os.getenv('BASE_URL', os.getenv('PUBLIC_URL', 'https://capturecare-310697189983.australia-southeast2.run.app'))
     
     GOOGLE_SHEETS_CREDENTIALS = os.getenv('GOOGLE_SHEETS_CREDENTIALS', '')
     GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '')

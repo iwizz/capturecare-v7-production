@@ -119,3 +119,4 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
 
 Once you complete Step 1 (run setup endpoint) and Step 2 (create Cloud Scheduler job), the automated reminder system will be fully operational!
 
+

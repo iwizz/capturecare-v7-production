@@ -4739,32 +4739,29 @@ function escapeHtml(text) {
 }
 
 // Convert URLs in text to clickable links while escaping other HTML
-function linkify(text) {
-    if (!text) return '';
-    
-    // First escape HTML to prevent XSS
-    let escaped = escapeHtml(text);
-    
-    // URL regex pattern - matches http://, https://, and www. URLs
-    const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+)/gi;
-    
-    // Replace URLs with clickable links
-    return escaped.replace(urlRegex, (url) => {
-        // Add http:// if it's a www. URL
-        let href = url;
-        if (url.toLowerCase().startsWith('www.')) {
-            href = 'https://' + url;
-        }
+    function linkify(text) {
+        if (!text) return '';
         
-        // Truncate display URL if too long
-        let displayUrl = url;
-        if (displayUrl.length > 60) {
-            displayUrl = displayUrl.substring(0, 57) + '...';
-        }
+        // First escape HTML to prevent XSS
+        let escaped = escapeHtml(text);
         
-        return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline break-all">${escapeHtml(displayUrl)}</a>`;
-    });
-}
+        // URL regex pattern - matches http://, https://, and www. URLs
+        const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+|www\.[^\s<>"{}|\\^`\[\]]+)/gi;
+        
+        // Replace URLs with clickable links
+        return escaped.replace(urlRegex, (url) => {
+            // Add http:// if it's a www. URL
+            let href = url;
+            if (url.toLowerCase().startsWith('www.')) {
+                href = 'https://' + url;
+            }
+            
+            // NO TRUNCATION - Show full URL
+            let displayUrl = url;
+            
+            return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline break-all">${escapeHtml(displayUrl)}</a>`;
+        });
+    }
 
 async function loadNotes() {
     try {
@@ -6486,8 +6483,11 @@ function pollVideoScriptStatus(videoId) {
                     document.getElementById('videoScriptVideoDownload').href = data.video_url;
                     console.log('✅ Video generation completed!', data.video_url);
                     
-                    // Save video URL to patient notes automatically
-                    saveHeyGenVideoNote(data.video_url, videoId);
+                    // Save video URL to patient notes automatically ONLY if not already saved in this session
+                    if (!window.videoNoteSavedForId || window.videoNoteSavedForId !== videoId) {
+                         saveHeyGenVideoNote(data.video_url, videoId);
+                         window.videoNoteSavedForId = videoId;
+                    }
                 } else if (status === 'failed' || status === 'error') {
                     clearInterval(interval);
                     document.getElementById('videoScriptVideoStatusText').textContent = `Video generation failed: ${data.error || 'Unknown error'}`;
@@ -8304,7 +8304,7 @@ async function startSync(fullSync = false) {
         addSyncStatus('Checking last sync date...', 'Determining what data to fetch');
         updateSyncProgress(5);
         
-        const response = await fetch(`/api/patients/{{ patient.id }}/sync-info`);
+        const response = await fetch(`/patients/{{ patient.id }}/sync-info`);
         const syncInfo = await response.json();
         
         if (syncInfo.last_record) {
@@ -8359,8 +8359,17 @@ async function startSync(fullSync = false) {
         updateSyncProgress(90);
         addSyncStatus('Saving data to database...', 'Storing all retrieved health records');
         
-        // Wait for response
-        const syncResult = await syncResponse.json();
+        // Wait for response - check if it's JSON first
+        let syncResult;
+        const contentType = syncResponse.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            syncResult = await syncResponse.json();
+        } else {
+            // Response is not JSON (likely HTML error page)
+            const text = await syncResponse.text();
+            console.error('Non-JSON response:', text.substring(0, 500));
+            throw new Error('Server returned an error. Please check the console for details.');
+        }
         
         if (syncResult.success) {
             updateSyncProgress(100);

@@ -93,7 +93,7 @@
                                 Not Connected
                             </span>
                         {% endif %}
-                        <a href="{{ url_for('patient_detail', patient_id=patient.id) }}" 
+                        <a href="{{ url_for('patients.patient_detail', patient_id=patient.id) }}" 
                            class="bg-brand-bright-teal text-white px-4 py-2 rounded-lg hover:bg-brand-teal transition">
                             View
                         </a>
@@ -128,7 +128,7 @@ document.getElementById('patientSearch').addEventListener('input', function(e) {
     <h2 class="text-2xl font-bold mb-6 text-gray-800">Quick Actions</h2>
     
     <div class="grid md:grid-cols-3 gap-4">
-        <a href="{{ url_for('add_patient') }}" 
+        <a href="{{ url_for('patients.add_patient') }}" 
            class="bg-brand-bright-teal text-white p-6 rounded-lg hover:bg-brand-teal transition text-center">
             <i class="fas fa-user-plus text-3xl mb-2"></i>
             <p class="font-semibold">Add New Patient</p>
@@ -142,7 +142,7 @@ document.getElementById('patientSearch').addEventListener('input', function(e) {
             </button>
         </form>
         
-        <a href="{{ url_for('patients_list') }}" 
+        <a href="{{ url_for('patients.patients_list') }}" 
            class="bg-purple-600 text-white p-6 rounded-lg hover:bg-purple-700 transition text-center">
             <i class="fas fa-list text-3xl mb-2"></i>
             <p class="font-semibold">View All Patients</p>

@@ -22,6 +22,7 @@ import jwt
 import secrets
 from functools import wraps
 from flask_migrate import Migrate
+from extensions import cache
 from blueprints.admin import admin_bp
 from blueprints.api import api_bp
 from blueprints.auth import auth_bp
@@ -78,6 +79,9 @@ for key in dir(config):
     if key.isupper() and not key.startswith('_'):
         app.config[key] = getattr(config, key)
 
+# Initialize Cache
+cache.init_app(app)
+
 app.secret_key = app.config['SECRET_KEY']
 
 # Register Blueprints
@@ -92,6 +96,7 @@ app.register_blueprint(appointments_bp)
 os.environ['FLASK_DEBUG'] = '0'
 SKIP_AUTH = False
 app.config['DEBUG'] = False
+app.config['PREFERRED_URL_SCHEME'] = 'https'  # Force HTTPS for all URL generation
 logger.info("Production mode enabled: Debug disabled, authentication enforced.")
 
 # Download client_secrets.json from Cloud Storage if not present (for Google OAuth)
@@ -140,7 +145,7 @@ def ensure_admin_user():
 @app.route('/')
 def index():
     if not current_user.is_authenticated:
-        return redirect(url_for('login'))
+        return redirect(url_for('auth.login'))
     return redirect(url_for('dashboard'))
 
 CORS(app)
@@ -333,21 +338,64 @@ def create_user():
             setup_url = f"{request.host_url}setup-password?token={setup_token}"
             email_subject = "Welcome to CaptureCare - Set Your Password"
             email_body = f"""
+            <!DOCTYPE html>
             <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                <h2 style="color: #00698f;">Welcome to CaptureCare!</h2>
-                <p>Hello {new_user.first_name or new_user.username},</p>
-                <p>An account has been created for you on CaptureCare. Please set your password to get started.</p>
-                <p><strong>Your username:</strong> {new_user.username}</p>
-                <p><strong>Your email:</strong> {new_user.email}</p>
-                <p>Click the button below to set your password:</p>
-                <p style="margin: 30px 0;">
-                    <a href="{setup_url}" style="background-color: #00698f; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Set Password</a>
-                </p>
-                <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:<br>{setup_url}</p>
-                <p style="color: #666; font-size: 14px;">This link will expire in 7 days.</p>
-                <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-                <p style="color: #999; font-size: 12px;">If you did not expect this email, please contact your administrator.</p>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Welcome to CaptureCare</title>
+            </head>
+            <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f9f9f9;">
+                <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); overflow: hidden;">
+                    
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #265063 0%, #00698f 100%); padding: 30px 40px; text-align: center;">
+                        <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">Welcome to CaptureCare</h1>
+                    </div>
+                    
+                    <!-- Content -->
+                    <div style="padding: 40px;">
+                        <p style="font-size: 16px; margin-bottom: 20px;">Hello <strong style="color: #00698f;">{new_user.first_name or new_user.username}</strong>,</p>
+                        
+                        <p style="font-size: 16px; color: #555; margin-bottom: 25px;">
+                            An account has been created for you on the CaptureCare platform. We're excited to have you on board!
+                        </p>
+                        
+                        <div style="background-color: #f0f8fa; border-left: 4px solid #00698f; padding: 15px 20px; margin-bottom: 30px; border-radius: 4px;">
+                            <p style="margin: 5px 0; font-size: 14px;"><strong>Username:</strong> {new_user.username}</p>
+                            <p style="margin: 5px 0; font-size: 14px;"><strong>Email:</strong> {new_user.email}</p>
+                        </div>
+                        
+                        <p style="font-size: 16px; margin-bottom: 30px;">
+                            To get started, please set your secure password by clicking the button below:
+                        </p>
+                        
+                        <div style="text-align: center; margin-bottom: 35px;">
+                            <a href="{setup_url}" style="background-color: #00698f; color: #ffffff; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block; transition: background-color 0.3s;">
+                                Set Your Password
+                            </a>
+                        </div>
+                        
+                        <p style="font-size: 13px; color: #777; margin-bottom: 10px;">
+                            Or copy and paste this link into your browser:
+                        </p>
+                        <p style="font-size: 13px; color: #00698f; word-break: break-all; margin-bottom: 20px; background-color: #f5f5f5; padding: 10px; border-radius: 4px;">
+                            {setup_url}
+                        </p>
+                        
+                        <p style="font-size: 13px; color: #999; font-style: italic;">
+                            This invitation link will expire in 7 days.
+                        </p>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div style="background-color: #f1f1f1; padding: 20px; text-align: center; border-top: 1px solid #e0e0e0;">
+                        <p style="color: #888; font-size: 12px; margin: 0;">
+                            &copy; {datetime.now().year} CaptureCare Health System. All rights reserved.<br>
+                            Humanising Digital Health
+                        </p>
+                    </div>
+                </div>
             </body>
             </html>
             """
@@ -913,6 +961,8 @@ def get_heart_rate_data(patient_id):
         patient = Patient.query.get_or_404(patient_id)
         device_source = request.args.get('device_source', 'all')
         date_str = request.args.get('date')
+        start_date_str = request.args.get('start_date')
+        end_date_str = request.args.get('end_date')
         
         query = HealthData.query.filter(
             HealthData.patient_id == patient_id,
@@ -929,7 +979,18 @@ def get_heart_rate_data(patient_id):
         elif device_source != 'all':
             query = query.filter_by(device_source=device_source)
         
-        if date_str:
+        # Handle date range (start_date and end_date)
+        if start_date_str or end_date_str:
+            try:
+                if start_date_str:
+                    start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                    query = query.filter(HealthData.timestamp >= start_date)
+                if end_date_str:
+                    end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+                    query = query.filter(HealthData.timestamp < end_date)
+            except ValueError as e:
+                logger.error(f"Invalid date format: start_date={start_date_str}, end_date={end_date_str}, error={e}")
+        elif date_str:
             try:
                 target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                 start_of_day = datetime.combine(target_date, datetime.min.time())
@@ -976,8 +1037,14 @@ def get_heart_rate_data(patient_id):
         })
     
     except Exception as e:
-        logger.error(f"Error fetching heart rate data: {e}")
-        return jsonify({'error': str(e)}), 400
+        logger.error(f"Error fetching heart rate data: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            db.session.remove()
+        except:
+            pass
 
 @app.route('/patients/<int:patient_id>/health_data/heart_rate/daily_minmax', methods=['GET'])
 @optional_login_required
@@ -991,9 +1058,22 @@ def get_heart_rate_daily_minmax(patient_id):
         start_date_str = request.args.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
         
         try:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
-        except ValueError:
+            # Parse dates - handle both date-only and datetime strings
+            if 'T' in start_date_str or ' ' in start_date_str:
+                # Contains time component, parse as datetime
+                start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+            else:
+                # Date only
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            
+            if 'T' in end_date_str or ' ' in end_date_str:
+                # Contains time component, parse as datetime
+                end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+            else:
+                # Date only - add 1 day to include the full end date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Invalid date format in heart_rate/daily_minmax: start={start_date_str}, end={end_date_str}, error={e}")
             start_date = datetime.now() - timedelta(days=30)
             end_date = datetime.now()
         
@@ -1022,8 +1102,14 @@ def get_heart_rate_daily_minmax(patient_id):
         return jsonify({'data': data})
     
     except Exception as e:
-        logger.error(f"Error fetching daily min/max heart rate: {e}")
-        return jsonify({'error': str(e)}), 400
+        logger.error(f"Error fetching daily min/max heart rate: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            db.session.remove()
+        except:
+            pass
 
 @app.route('/patients/<int:patient_id>/update', methods=['POST'])
 @optional_login_required
@@ -1091,47 +1177,9 @@ def delete_patient(patient_id):
         flash(f'Error deleting patient: {str(e)}', 'error')
         return redirect(url_for('patient_detail', patient_id=patient_id))
     
-    return redirect(url_for('patients_list'))
+    return redirect(url_for('patients.patients_list'))
 
 
-@app.route('/withings/callback')
-def withings_callback():
-    code = request.args.get('code')
-    state = request.args.get('state')
-    
-    if not code:
-        flash('Authorization failed - no code received', 'error')
-        return redirect(url_for('index'))
-    
-    try:
-        credentials = withings_auth.get_credentials(code, state)
-        patient_id = credentials.userid if hasattr(credentials, 'userid') else session.get('patient_id')
-        
-        if state:
-            patient_id_from_state = int(state.split('_')[0]) if '_' in state else None
-            if patient_id_from_state:
-                patient_id = patient_id_from_state
-        
-        if not patient_id:
-            flash('Unable to identify patient', 'error')
-            return redirect(url_for('index'))
-        
-        withings_auth.save_tokens(patient_id, credentials)
-        
-        flash('Withings device authorized successfully!', 'success')
-        return redirect(url_for('patient_detail', patient_id=patient_id))
-    
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Withings callback error: {error_msg}")
-        
-        if "Scope has changed" in error_msg or "scope" in error_msg.lower():
-            withings_auth.reset_patient_connection(patient_id)
-            flash('Scope configuration changed. Please go to https://account.withings.com/partner/apps and revoke "CaptureCare" app, then click Connect Withings again.', 'warning')
-        else:
-            flash(f'Authorization error: {error_msg}', 'error')
-        
-        return redirect(url_for('patient_detail', patient_id=patient_id))
 
 
 @app.route('/api/patients/<int:patient_id>', methods=['GET'])
@@ -1524,36 +1572,46 @@ def get_webhook_logs():
 @optional_login_required
 def get_patient_invoices(patient_id):
     """Get all invoices for a patient"""
-    patient = Patient.query.get_or_404(patient_id)
-    invoices = Invoice.query.filter_by(patient_id=patient_id).order_by(Invoice.created_at.desc()).all()
-    
-    return jsonify({
-        'invoices': [{
-            'id': inv.id,
-            'invoice_number': inv.invoice_number,
-            'invoice_type': inv.invoice_type,
-            'status': inv.status,
-            'total_amount': inv.total_amount,
-            'amount_paid': inv.amount_paid,
-            'currency': inv.currency,
-            'invoice_date': inv.invoice_date.isoformat() if inv.invoice_date else None,
-            'due_date': inv.due_date.isoformat() if inv.due_date else None,
-            'paid_date': inv.paid_date.isoformat() if inv.paid_date else None,
-            'description': inv.description,
-            'is_recurring': inv.is_recurring,
-            'recurring_frequency': inv.recurring_frequency,
-            'next_billing_date': inv.next_billing_date.isoformat() if inv.next_billing_date else None,
-            'stripe_hosted_invoice_url': inv.stripe_hosted_invoice_url,
-            'stripe_invoice_pdf': inv.stripe_invoice_pdf,
-            'items': [{
-                'description': item.description,
-                'quantity': item.quantity,
-                'unit_price': item.unit_price,
-                'tax_rate': item.tax_rate,
-                'amount': item.amount
-            } for item in inv.items]
-        } for inv in invoices]
-    })
+    try:
+        patient = Patient.query.get_or_404(patient_id)
+        invoices = Invoice.query.filter_by(patient_id=patient_id).order_by(Invoice.created_at.desc()).all()
+        
+        return jsonify({
+            'invoices': [{
+                'id': inv.id,
+                'invoice_number': inv.invoice_number,
+                'invoice_type': inv.invoice_type,
+                'status': inv.status,
+                'total_amount': inv.total_amount,
+                'amount_paid': inv.amount_paid,
+                'currency': inv.currency,
+                'invoice_date': inv.invoice_date.isoformat() if inv.invoice_date else None,
+                'due_date': inv.due_date.isoformat() if inv.due_date else None,
+                'paid_date': inv.paid_date.isoformat() if inv.paid_date else None,
+                'description': inv.description,
+                'is_recurring': inv.is_recurring,
+                'recurring_frequency': inv.recurring_frequency,
+                'next_billing_date': inv.next_billing_date.isoformat() if inv.next_billing_date else None,
+                'stripe_hosted_invoice_url': inv.stripe_hosted_invoice_url,
+                'stripe_invoice_pdf': inv.stripe_invoice_pdf,
+                'items': [{
+                    'description': item.description,
+                    'quantity': item.quantity,
+                    'unit_price': item.unit_price,
+                    'tax_rate': item.tax_rate,
+                    'amount': item.amount
+                } for item in inv.items]
+            } for inv in invoices]
+        })
+    except Exception as e:
+        logger.error(f"Error fetching patient invoices: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            db.session.remove()
+        except:
+            pass
 
 @app.route('/patients/<int:patient_id>/invoices', methods=['POST'])
 @optional_login_required
@@ -1648,7 +1706,7 @@ def cancel_invoice_subscription(patient_id, invoice_id):
 def import_from_cliniko():
     if not cliniko:
         flash('Cliniko API not configured', 'error')
-        return redirect(url_for('patients_list'))
+        return redirect(url_for('patients.patients_list'))
     
     try:
         cliniko_patients = cliniko.get_all_patients()
@@ -1695,7 +1753,7 @@ def import_from_cliniko():
         logger.error(f"Error importing from Cliniko: {e}")
         flash(f'Error importing patients: {str(e)}', 'error')
     
-    return redirect(url_for('patients_list'))
+    return redirect(url_for('patients.patients_list'))
 
 # Patient Notes API Endpoints
 @app.route('/api/patients/<int:patient_id>/notes', methods=['GET'])
@@ -2064,6 +2122,8 @@ def send_ios_app_invite(patient_id):
         
         # Prepare invite message
         app_store_url = "https://apps.apple.com/app/capturecare"  # Update with actual App Store URL when published
+        
+        # Plain text message for SMS
         message = f"""Hi {patient.first_name}, 
 
 You've been invited to use the CaptureCare patient app! 
@@ -2111,13 +2171,69 @@ Download: {app_store_url}
                 from notification_service import NotificationService
                 notif_service = NotificationService()
                 
-                # Convert plain text message to HTML for email
-                html_message = message.replace('\n', '<br>')
+                # Render branded HTML template
+                from datetime import datetime
+                try:
+                    body_html = render_template('emails/ios_app_invite.html', 
+                                              patient=patient, 
+                                              temp_password=temp_password,
+                                              app_store_url=app_store_url,
+                                              current_year=datetime.now().year)
+                    logger.info(f"✅ iOS app invite email template rendered successfully")
+                except Exception as template_error:
+                    logger.error(f"Error rendering iOS app invite template: {template_error}", exc_info=True)
+                    # Fallback to simple HTML
+                    body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .email-container {{ background-color: #ffffff; border-radius: 8px; padding: 40px; }}
+        .header {{ text-align: center; margin-bottom: 30px; }}
+        .logo {{ font-size: 24px; font-weight: bold; color: #00698f; }}
+        h1 {{ color: #00698f; font-size: 28px; text-align: center; }}
+        .credentials-box {{ background-color: #f8f9fa; border-left: 4px solid #00698f; padding: 20px; margin: 25px 0; }}
+        .download-button {{
+            display: inline-block;
+            background-color: #00698f;
+            color: #ffffff !important;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="logo">CaptureCare®</div>
+            <p>Humanising Digital Health</p>
+        </div>
+        <h1>Welcome to CaptureCare Patient App</h1>
+        <p>Hello {patient.first_name},</p>
+        <p>You've been invited to use the CaptureCare patient app!</p>
+        <div class="credentials-box">
+            <p><strong>Email:</strong> {patient.email}</p>
+            <p><strong>Password:</strong> {temp_password}</p>
+        </div>
+        <div style="text-align: center;">
+            <a href="{app_store_url}" class="download-button" style="color: #ffffff; text-decoration: none;">📱 DOWNLOAD THE APP</a>
+        </div>
+        <p style="font-size: 14px; color: #666;">Please change your password after signing in.</p>
+    </div>
+</body>
+</html>
+"""
                 
                 email_sent = notif_service.send_email(
                     to_email=patient.email,
-                    subject="CaptureCare Patient App Invite",
-                    body_html=f"<html><body>{html_message}</body></html>",
+                    subject="Welcome to CaptureCare Patient App",
+                    body_html=body_html,
                     body_text=message,
                     patient_id=patient_id,
                     user_id=current_user.id if current_user.is_authenticated else None,
@@ -3707,17 +3823,17 @@ def get_heygen_avatars():
     # Create a new Config instance to reload secrets from Secret Manager
     config_instance = Config()
     
-    # Get API key from config (which loads from Secret Manager in Cloud Run)
-    api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
-    if not api_key:
-        logger.warning("⚠️  HeyGen API key not found in config or environment")
-        logger.warning(f"Config.HEYGEN_API_KEY: {bool(Config.HEYGEN_API_KEY)}, os.getenv: {bool(os.getenv('HEYGEN_API_KEY'))}")
-        logger.warning(f"USE_SECRET_MANAGER: {Config.USE_SECRET_MANAGER}, GCP_PROJECT_ID: {Config.GCP_PROJECT_ID}")
-        return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
-    
-    logger.info(f"🔑 Using HeyGen API key: {api_key[:20]}..." if len(api_key) > 20 else f"🔑 Using HeyGen API key")
-    
     try:
+        # Get API key from config (which loads from Secret Manager in Cloud Run)
+        api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
+        if not api_key:
+            logger.warning("⚠️  HeyGen API key not found in config or environment")
+            logger.warning(f"Config.HEYGEN_API_KEY: {bool(Config.HEYGEN_API_KEY)}, os.getenv: {bool(os.getenv('HEYGEN_API_KEY'))}")
+            logger.warning(f"USE_SECRET_MANAGER: {Config.USE_SECRET_MANAGER}, GCP_PROJECT_ID: {Config.GCP_PROJECT_ID}")
+            return jsonify({'success': False, 'error': 'HeyGen API not configured'}), 400
+        
+        logger.info(f"🔑 Using HeyGen API key: {api_key[:20]}..." if len(api_key) > 20 else f"🔑 Using HeyGen API key")
+        
         # Create fresh HeyGen instance with current API key
         heygen_service = HeyGenService(api_key)
         avatars = heygen_service.get_avatars()
@@ -3878,15 +3994,6 @@ def dashboard():
     all_patients = Patient.query.order_by(Patient.first_name, Patient.last_name).all()
     
     return render_template('dashboard.html', stats=stats, all_patients=all_patients)
-
-# Master Calendar Routes
-@app.route('/calendar')
-@optional_login_required
-def master_calendar():
-    """Master calendar view showing all appointments"""
-    patients = Patient.query.order_by(Patient.first_name).all()
-    practitioners = User.query.filter_by(is_active=True).order_by(User.first_name).all()
-    return render_template('calendar.html', patients=patients, practitioners=practitioners)
 
 
 

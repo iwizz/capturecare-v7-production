@@ -111,3 +111,4 @@ SELECT refresh_appointment_cache(
     CURRENT_DATE + INTERVAL '3 months'
 );
 
+

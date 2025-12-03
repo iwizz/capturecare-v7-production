@@ -59,3 +59,4 @@ SELECT * FROM patient_auth LIMIT 1;
 
 If this query works, the table exists!
 
+

@@ -34,3 +34,7 @@ capturecare/capturecare.db
 attached_assets/
 scripts/
 migrations/
+**/Library/
+**/DerivedData/
+**/Xcode/
+**/.Trash/

@@ -41,7 +41,7 @@
             <i class="fas fa-users text-brand-bright-teal mr-3"></i>
             All Patients
         </h2>
-        <a href="{{ url_for('add_patient') }}" 
+        <a href="{{ url_for('patients.add_patient') }}" 
            class="bg-brand-bright-teal text-white px-4 py-2 rounded-lg hover:bg-brand-teal transition">
             <i class="fas fa-plus mr-2"></i>Add Patient
         </a>
@@ -130,7 +130,7 @@
         <div class="text-center py-12">
             <i class="fas fa-user-plus text-6xl text-gray-300 mb-4"></i>
             <p class="text-gray-600 text-lg mb-6">No patients yet. Start by adding your first patient.</p>
-            <a href="{{ url_for('add_patient') }}" 
+            <a href="{{ url_for('patients.add_patient') }}" 
                class="inline-block bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
                 <i class="fas fa-plus mr-2"></i>Add First Patient
             </a>
