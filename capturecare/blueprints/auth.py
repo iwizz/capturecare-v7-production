@@ -262,10 +262,11 @@ def google_callback():
         credentials = flow.credentials
         
         # Verify the ID token with request object for additional security
+        client_id = client_secrets['web']['client_id']
         userinfo = id_token.verify_oauth2_token(
             credentials.id_token, 
             google_requests.Request(),
-            flow.client_config['client_id']
+            client_id
         )
         
         user = User.query.filter_by(email=userinfo['email']).first()
