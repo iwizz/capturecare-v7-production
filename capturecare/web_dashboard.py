@@ -4916,7 +4916,12 @@ def google_callback():
     
     flow = Flow.from_client_secrets_file('client_secrets.json', scopes=['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile', 'openid'])
     flow.redirect_uri = url_for('google_callback', _external=True)
+    
+    # Get authorization response URL and force HTTPS (Cloud Run terminates SSL)
     authorization_response = request.url
+    if authorization_response.startswith('http://'):
+        authorization_response = authorization_response.replace('http://', 'https://', 1)
+    
     flow.fetch_token(authorization_response=authorization_response)
     credentials = flow.credentials
     userinfo = id_token.verify_oauth2_token(credentials.id_token, google_requests.Request(), client_id)

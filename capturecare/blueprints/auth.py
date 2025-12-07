@@ -256,7 +256,13 @@ def google_callback():
         flash('Authorization failed. Please try again.', 'error')
         return redirect(url_for('auth.login'))
     
+    # Get authorization response URL and force HTTPS (Cloud Run terminates SSL)
     authorization_response = request.url
+    if authorization_response.startswith('http://'):
+        authorization_response = authorization_response.replace('http://', 'https://', 1)
+    
+    logger.info(f"Authorization response URL: {authorization_response[:100]}")
+    
     try:
         flow.fetch_token(authorization_response=authorization_response)
         credentials = flow.credentials
