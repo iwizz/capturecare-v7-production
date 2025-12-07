@@ -199,7 +199,8 @@ def google_login():
 @auth_bp.route('/google/callback')
 def google_callback():
     from google_auth_oauthlib.flow import Flow
-    from google.oauth2 import idtoken
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
     
     # Use hardcoded production URL with HTTPS - MUST match google_login
     # Using the actual working URL
@@ -261,10 +262,10 @@ def google_callback():
         credentials = flow.credentials
         
         # Verify the ID token with request object for additional security
-        userinfo = idtoken.verify_oauth2_token(
+        userinfo = id_token.verify_oauth2_token(
             credentials.id_token, 
-            flow.client_config['client_id'],
-            request=request
+            google_requests.Request(),
+            flow.client_config['client_id']
         )
         
         user = User.query.filter_by(email=userinfo['email']).first()

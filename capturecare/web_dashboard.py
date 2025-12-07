@@ -4905,13 +4905,14 @@ def google_login():
 @app.route('/google/callback')
 def google_callback():
     from google_auth_oauthlib.flow import Flow
-    from google.oauth2 import idtoken
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
     flow = Flow.from_client_secrets_file('client_secrets.json', scopes=['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile', 'openid'])
     flow.redirect_uri = url_for('google_callback', _external=True)
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
     credentials = flow.credentials
-    userinfo = idtoken.verify_oauth2_token(credentials.id_token, flow.client_config['client_id'])
+    userinfo = id_token.verify_oauth2_token(credentials.id_token, google_requests.Request(), flow.client_config['client_id'])
     user = User.query.filter_by(email=userinfo['email']).first()
     if not user:
         user = User(username=userinfo['email'].split('@')[0], email=userinfo['email'], role='user')
