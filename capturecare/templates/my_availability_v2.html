@@ -1032,6 +1032,7 @@ async function loadTeamAvailability(info, successCallback, failureCallback) {
 
 function convertPatternsToEvents(patterns, exceptions, holidays, startDate, endDate) {
     const events = [];
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     // Handle both 'date' and 'exception_date' field names from API
     // Extract date part if it includes time
     const exceptionDates = new Set(exceptions.map(ex => {
@@ -1095,16 +1096,29 @@ function convertPatternsToEvents(patterns, exceptions, holidays, startDate, endD
                     end: pattern.end_time
                 });
                 
+                // Style company-wide patterns differently
+                const isCompanyWide = pattern.is_company_wide === true;
+                const title = isCompanyWide 
+                    ? `🏢 ${pattern.title}` 
+                    : `${pattern.user_name || 'Unknown'}: ${pattern.title}`;
+                const bgColor = isCompanyWide 
+                    ? '#10b981' // Green for office hours
+                    : (pattern.user_color || '#3b82f6');
+                const borderColor = isCompanyWide 
+                    ? '#059669' 
+                    : (pattern.user_color || '#2563eb');
+                
                 events.push({
-                    title: `${pattern.user_name}: ${pattern.title}`,
+                    title: title,
                     start: `${dateStr}T${pattern.start_time}`,
                     end: `${dateStr}T${pattern.end_time}`,
-                    backgroundColor: pattern.user_color || '#3b82f6',
-                    borderColor: pattern.user_color || '#2563eb',
+                    backgroundColor: bgColor,
+                    borderColor: borderColor,
                     extendedProps: {
                         userId: pattern.user_id,
                         userName: pattern.user_name,
-                        isAvailable: true
+                        isAvailable: true,
+                        isCompanyWide: isCompanyWide
                     }
                 });
             }
@@ -1197,16 +1211,25 @@ function convertPatternsToEvents(patterns, exceptions, holidays, startDate, endD
     
     // Add exceptions as blocked time
     exceptions.forEach(ex => {
+        const isCompanyWide = ex.is_company_wide === true;
+        const title = isCompanyWide 
+            ? `🏢 ${ex.reason || 'Company Holiday'}` 
+            : `${ex.user_name || 'Unknown'}: ${ex.reason || 'Blocked'}`;
+        const bgColor = isCompanyWide ? '#dc2626' : '#b91c1c'; // Brighter red for company holidays
+        const borderColor = isCompanyWide ? '#b91c1c' : '#991b1b';
+        
         events.push({
-            title: `${ex.user_name}: ${ex.reason || 'Blocked'}`,
+            title: title,
             start: ex.is_all_day ? ex.date : `${ex.date}T${ex.start_time}`,
             end: ex.is_all_day ? ex.date : `${ex.date}T${ex.end_time}`,
-            backgroundColor: '#dc2626',
-            borderColor: '#b91c1c',
+            backgroundColor: bgColor,
+            borderColor: borderColor,
             display: 'background',
+            textColor: 'white',
             extendedProps: {
                 userId: ex.user_id,
-                isException: true
+                isException: true,
+                isCompanyWide: isCompanyWide
             }
         });
     });

@@ -1717,21 +1717,59 @@ def delete_my_availability(slot_id):
 def manage_availability_patterns():
     if request.method == 'GET':
         try:
-            patterns = AvailabilityPattern.query.filter_by(user_id=current_user.id).all()
+            # Check if admin is viewing another user's patterns
+            manage_user_id = request.args.get('user_id', type=int, default=current_user.id)
+            
+            # Admins can view any user, non-admins only their own
+            if manage_user_id != current_user.id and not current_user.is_admin:
+                manage_user_id = current_user.id
+            
+            # Get user-specific patterns
+            user_patterns = AvailabilityPattern.query.filter_by(
+                user_id=manage_user_id,
+                is_company_wide=False
+            ).all()
+            
+            # Get company-wide patterns (office hours) - visible to all
+            company_patterns = AvailabilityPattern.query.filter_by(
+                is_company_wide=True,
+                is_active=True
+            ).all()
+            
             pattern_list = []
-            for pattern in patterns:
+            
+            # Add user-specific patterns
+            for pattern in user_patterns:
                 pattern_list.append({
                     'id': pattern.id,
                     'title': pattern.title,
                     'frequency': pattern.frequency,
-                    'weekdays': pattern.weekdays if pattern.weekdays else '',  # Return as string for frontend .split()
+                    'weekdays': pattern.weekdays if pattern.weekdays else '',
                     'start_time': pattern.start_time.strftime('%H:%M'),
                     'end_time': pattern.end_time.strftime('%H:%M'),
                     'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
                     'valid_until': pattern.valid_until.isoformat() if pattern.valid_until else None,
                     'is_active': pattern.is_active,
+                    'is_company_wide': False,
                     'color': pattern.color
                 })
+            
+            # Add company-wide patterns (office hours)
+            for pattern in company_patterns:
+                pattern_list.append({
+                    'id': pattern.id,
+                    'title': pattern.title + ' (Office Hours)',
+                    'frequency': pattern.frequency,
+                    'weekdays': pattern.weekdays if pattern.weekdays else '',
+                    'start_time': pattern.start_time.strftime('%H:%M'),
+                    'end_time': pattern.end_time.strftime('%H:%M'),
+                    'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
+                    'valid_until': pattern.valid_until.isoformat() if pattern.valid_until else None,
+                    'is_active': pattern.is_active,
+                    'is_company_wide': True,
+                    'color': '#10b981'  # Green for office hours
+                })
+            
             return jsonify({'success': True, 'patterns': pattern_list})
         except Exception as e:
             logger.error(f"Error fetching availability patterns: {e}")
@@ -1821,9 +1859,28 @@ def update_delete_availability_pattern(pattern_id):
 def manage_availability_exceptions():
     if request.method == 'GET':
         try:
-            exceptions = AvailabilityException.query.filter_by(user_id=current_user.id).all()
+            # Check if admin is viewing another user's exceptions
+            manage_user_id = request.args.get('user_id', type=int, default=current_user.id)
+            
+            # Admins can view any user, non-admins only their own
+            if manage_user_id != current_user.id and not current_user.is_admin:
+                manage_user_id = current_user.id
+            
+            # Get user-specific exceptions
+            user_exceptions = AvailabilityException.query.filter_by(
+                user_id=manage_user_id,
+                is_company_wide=False
+            ).all()
+            
+            # Get company-wide exceptions (holidays) - visible to all
+            company_exceptions = AvailabilityException.query.filter_by(
+                is_company_wide=True
+            ).all()
+            
             exception_list = []
-            for exception in exceptions:
+            
+            # Add user-specific exceptions
+            for exception in user_exceptions:
                 exception_list.append({
                     'id': exception.id,
                     'exception_date': exception.exception_date.isoformat(),
@@ -1831,8 +1888,23 @@ def manage_availability_exceptions():
                     'is_all_day': exception.is_all_day,
                     'start_time': exception.start_time.strftime('%H:%M') if exception.start_time else None,
                     'end_time': exception.end_time.strftime('%H:%M') if exception.end_time else None,
-                    'reason': exception.reason
+                    'reason': exception.reason,
+                    'is_company_wide': False
                 })
+            
+            # Add company-wide exceptions (holidays/closures)
+            for exception in company_exceptions:
+                exception_list.append({
+                    'id': exception.id,
+                    'exception_date': exception.exception_date.isoformat(),
+                    'exception_type': exception.exception_type,
+                    'is_all_day': exception.is_all_day,
+                    'start_time': exception.start_time.strftime('%H:%M') if exception.start_time else None,
+                    'end_time': exception.end_time.strftime('%H:%M') if exception.end_time else None,
+                    'reason': (exception.reason or 'Company Holiday') + ' (Company-Wide)',
+                    'is_company_wide': True
+                })
+            
             return jsonify({'success': True, 'exceptions': exception_list})
         except Exception as e:
             logger.error(f"Error fetching availability exceptions: {e}")
