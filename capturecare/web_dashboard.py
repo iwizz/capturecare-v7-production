@@ -5245,6 +5245,34 @@ def run_startup_migrations():
             logger.info("✅ Migration complete: is_company_wide column added to availability_patterns")
         
         logger.info("✅ Database schema is up to date")
+        
+        # CRITICAL: Fix sequences that may be out of sync (prevents duplicate key errors)
+        logger.info("🔧 Checking and fixing database sequences...")
+        with db.engine.connect() as conn:
+            # Fix all major sequences to match current max IDs
+            sequences_to_fix = [
+                ('availability_patterns', 'availability_patterns_id_seq'),
+                ('availability_exceptions', 'availability_exceptions_id_seq'),
+                ('appointments', 'appointments_id_seq'),
+                ('patients', 'patients_id_seq'),
+                ('users', 'users_id_seq'),
+                ('patient_notes', 'patient_notes_id_seq'),
+                ('invoices', 'invoices_id_seq')
+            ]
+            
+            for table_name, seq_name in sequences_to_fix:
+                try:
+                    # Reset sequence to max(id) + 1
+                    conn.execute(text(f"""
+                        SELECT setval('{seq_name}', 
+                                     COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, 
+                                     false)
+                    """))
+                    conn.commit()
+                except Exception as seq_error:
+                    logger.warning(f"Could not fix sequence {seq_name}: {seq_error}")
+            
+            logger.info("✅ All sequences synchronized")
             
     except Exception as e:
         logger.warning(f"Migration check failed (non-critical): {e}")
