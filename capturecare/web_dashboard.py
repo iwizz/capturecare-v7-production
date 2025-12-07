@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash, Response
+from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
+from sqlalchemy import or_
 from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth
 from config import Config
 from withings_auth import WithingsAuthManager
@@ -82,9 +84,49 @@ for key in dir(config):
 # Initialize Cache
 cache.init_app(app)
 
+# CRITICAL: Database error handling to prevent connection corruption
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    """Ensure database session is properly cleaned up, even on errors"""
+    try:
+        if exception:
+            # On any exception, rollback and dispose of potentially bad connections
+            db.session.rollback()
+            # Force dispose of the connection pool to clear bad connections
+            db.engine.dispose()
+            logger.warning(f"Database session rolled back due to exception: {exception}")
+        db.session.remove()
+    except Exception as e:
+        logger.error(f"Error during session cleanup: {e}")
+        try:
+            # Force engine disposal as last resort
+            db.engine.dispose()
+        except:
+            pass
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Global exception handler to log errors and clean up bad connections"""
+    logger.error(f"Unhandled exception: {e}", exc_info=True)
+    # Rollback and dispose on any error
+    try:
+        db.session.rollback()
+        db.engine.dispose()
+    except:
+        pass
+    # Return a proper error response
+    if isinstance(e, HTTPException):
+        return e
+    return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+
 app.secret_key = app.config['SECRET_KEY']
 
-# Register Blueprints
+# CRITICAL: Initialize database BEFORE registering blueprints
+CORS(app)
+db.init_app(app)
+migrate = Migrate(app, db)
+
+# Register Blueprints (AFTER db.init_app)
 app.register_blueprint(admin_bp)
 app.register_blueprint(api_bp, url_prefix='/api')
 app.register_blueprint(auth_bp)
@@ -147,10 +189,6 @@ def index():
     if not current_user.is_authenticated:
         return redirect(url_for('auth.login'))
     return redirect(url_for('dashboard'))
-
-CORS(app)
-db.init_app(app)
-migrate = Migrate(app, db)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -971,7 +1009,7 @@ def get_heart_rate_data(patient_id):
         
         if device_source == 'scale_or_null':
             query = query.filter(
-                db.or_(
+                or_(
                     HealthData.device_source == 'scale',
                     HealthData.device_source.is_(None)
                 )
@@ -1011,24 +1049,36 @@ def get_heart_rate_data(patient_id):
             'device_source': d.device_source
         } for d in health_data]
         
-        dates_query = db.session.query(
-            db.func.date(HealthData.timestamp).label('date')
-        ).filter(
-            HealthData.patient_id == patient_id,
-            HealthData.measurement_type == 'heart_rate'
-        )
-        
+        # Get available dates using raw SQL to avoid label access issues
+        from sqlalchemy import text
         if device_source == 'scale_or_null':
-            dates_query = dates_query.filter(
-                db.or_(
-                    HealthData.device_source == 'scale',
-                    HealthData.device_source.is_(None)
-                )
-            )
+            dates_result = db.session.execute(text("""
+                SELECT DISTINCT DATE(timestamp) as date
+                FROM health_data
+                WHERE patient_id = :patient_id
+                  AND measurement_type = 'heart_rate'
+                  AND (device_source = 'scale' OR device_source IS NULL)
+                ORDER BY DATE(timestamp)
+            """), {'patient_id': patient_id}).fetchall()
         elif device_source != 'all':
-            dates_query = dates_query.filter_by(device_source=device_source)
+            dates_result = db.session.execute(text("""
+                SELECT DISTINCT DATE(timestamp) as date
+                FROM health_data
+                WHERE patient_id = :patient_id
+                  AND measurement_type = 'heart_rate'
+                  AND device_source = :device_source
+                ORDER BY DATE(timestamp)
+            """), {'patient_id': patient_id, 'device_source': device_source}).fetchall()
+        else:
+            dates_result = db.session.execute(text("""
+                SELECT DISTINCT DATE(timestamp) as date
+                FROM health_data
+                WHERE patient_id = :patient_id
+                  AND measurement_type = 'heart_rate'
+                ORDER BY DATE(timestamp)
+            """), {'patient_id': patient_id}).fetchall()
         
-        available_dates = [str(d.date) for d in dates_query.distinct().order_by(db.text('date')).all()]
+        available_dates = [str(d[0]) for d in dates_result]
         
         return jsonify({
             'data': data,
@@ -1077,26 +1127,33 @@ def get_heart_rate_daily_minmax(patient_id):
             start_date = datetime.now() - timedelta(days=30)
             end_date = datetime.now()
         
-        daily_data = db.session.query(
-            db.func.date(HealthData.timestamp).label('date'),
-            db.func.min(HealthData.value).label('min_hr'),
-            db.func.max(HealthData.value).label('max_hr'),
-            db.func.avg(HealthData.value).label('avg_hr')
-        ).filter(
-            HealthData.patient_id == patient_id,
-            HealthData.device_source == 'watch',
-            HealthData.measurement_type == 'heart_rate',
-            HealthData.timestamp >= start_date,
-            HealthData.timestamp < end_date
-        ).group_by(
-            db.func.date(HealthData.timestamp)
-        ).order_by(db.text('date')).all()
+        # Use raw SQL to avoid SQLAlchemy label issues with date() function
+        from sqlalchemy import text
+        daily_data = db.session.execute(text("""
+            SELECT 
+                DATE(timestamp) as date,
+                MIN(value) as min_hr,
+                MAX(value) as max_hr,
+                AVG(value) as avg_hr
+            FROM health_data
+            WHERE patient_id = :patient_id
+              AND device_source = 'watch'
+              AND measurement_type = 'heart_rate'
+              AND timestamp >= :start_date
+              AND timestamp < :end_date
+            GROUP BY DATE(timestamp)
+            ORDER BY DATE(timestamp)
+        """), {
+            'patient_id': patient_id,
+            'start_date': start_date,
+            'end_date': end_date
+        }).fetchall()
         
         data = [{
-            'date': str(d.date),
-            'min': d.min_hr,
-            'max': d.max_hr,
-            'avg': round(d.avg_hr, 1)
+            'date': str(d[0]),  # date is first column
+            'min': d[1],  # min_hr
+            'max': d[2],  # max_hr
+            'avg': round(d[3], 1)  # avg_hr
         } for d in daily_data]
         
         return jsonify({'data': data})
@@ -1128,6 +1185,13 @@ def update_patient(patient_id):
         patient.phone = request.form.get('phone') or None
         patient.mobile = request.form.get('mobile') or None
         patient.sex = request.form.get('sex') or None
+        
+        # Update allocated practitioner
+        allocated_pract_id = request.form.get('allocated_practitioner_id')
+        if allocated_pract_id:
+            patient.allocated_practitioner_id = int(allocated_pract_id) if allocated_pract_id else None
+        else:
+            patient.allocated_practitioner_id = None
         
         patient.address_line1 = request.form.get('address_line1') or None
         patient.address_line2 = request.form.get('address_line2') or None
@@ -1216,7 +1280,7 @@ def api_search_patients():
     # Search by first name, last name, or email
     search_pattern = f'%{query_param}%'
     patients = Patient.query.filter(
-        db.or_(
+        or_(
             Patient.first_name.ilike(search_pattern),
             Patient.last_name.ilike(search_pattern),
             Patient.email.ilike(search_pattern)
@@ -4857,6 +4921,206 @@ def google_callback():
     return redirect(url_for('dashboard'))
 
 logger.info("Google routes loaded successfully")
+
+# Company-Wide Settings Routes
+@app.route('/company-settings')
+@login_required
+def company_settings():
+    """Admin page for managing company-wide settings (office hours, holidays, etc.)"""
+    # Only admins can access
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Get all company-wide blocks
+    company_blocks = AvailabilityException.query.filter_by(
+        is_company_wide=True
+    ).order_by(AvailabilityException.exception_date.asc()).all()
+    
+    return render_template('company_settings.html', 
+                         company_blocks=company_blocks)
+
+@app.route('/api/company-settings/blocks', methods=['POST'])
+@login_required
+def add_company_block():
+    """Add a company-wide block (holiday, closure, etc.)"""
+    # Only admins can access
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin privileges required'}), 403
+    
+    try:
+        data = request.get_json()
+        start_date_str = data.get('start_date')
+        end_date_str = data.get('end_date', start_date_str)  # Single day if no end_date
+        exception_type = data.get('exception_type', 'holiday')
+        reason = data.get('reason', 'Company Holiday')
+        is_all_day = data.get('is_all_day', True)
+        
+        if not start_date_str:
+            return jsonify({'success': False, 'error': 'Start date is required'}), 400
+        
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        
+        # Create a block for each day in the range
+        current_date = start_date
+        blocks_created = []
+        
+        while current_date <= end_date:
+            # Check if block already exists
+            existing = AvailabilityException.query.filter_by(
+                is_company_wide=True,
+                exception_date=current_date
+            ).first()
+            
+            if not existing:
+                block = AvailabilityException(
+                    user_id=None,  # NULL for company-wide
+                    is_company_wide=True,
+                    exception_date=current_date,
+                    exception_type=exception_type,
+                    is_all_day=is_all_day,
+                    reason=reason
+                )
+                db.session.add(block)
+                blocks_created.append(current_date.strftime('%Y-%m-%d'))
+            
+            # Move to next day
+            current_date += timedelta(days=1)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Added {len(blocks_created)} company-wide blocks',
+            'dates': blocks_created
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error adding company block: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/company-settings/blocks/<int:block_id>', methods=['DELETE'])
+@login_required
+def delete_company_block(block_id):
+    """Delete a company-wide block"""
+    # Only admins can access
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin privileges required'}), 403
+    
+    try:
+        
+        block = AvailabilityException.query.get_or_404(block_id)
+        
+        # Verify it's a company-wide block
+        if not block.is_company_wide:
+            return jsonify({'success': False, 'error': 'Not a company-wide block'}), 400
+        
+        db.session.delete(block)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Company-wide block deleted successfully'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting company block: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/debug/availability-blocks')
+@login_required
+def debug_availability_blocks():
+    """Debug page to see all availability blocks"""
+    from capturecare.models import AvailabilityException
+    from datetime import date
+    
+    # Get all blocks around Christmas
+    blocks = AvailabilityException.query.filter(
+        AvailabilityException.exception_date >= date(2025, 12, 20),
+        AvailabilityException.exception_date <= date(2026, 1, 10)
+    ).order_by(AvailabilityException.exception_date).all()
+    
+    result = {
+        'total_blocks': len(blocks),
+        'company_wide_blocks': [],
+        'individual_blocks': []
+    }
+    
+    for block in blocks:
+        block_data = {
+            'id': block.id,
+            'date': str(block.exception_date),
+            'type': block.exception_type,
+            'reason': block.reason,
+            'is_all_day': block.is_all_day,
+            'is_company_wide': block.is_company_wide,
+            'user_id': block.user_id
+        }
+        
+        if block.is_company_wide:
+            result['company_wide_blocks'].append(block_data)
+        else:
+            result['individual_blocks'].append(block_data)
+    
+    return jsonify(result)
+
+logger.info("Company settings routes loaded successfully")
+
+# Run database migrations on startup
+def run_startup_migrations():
+    """Run necessary database migrations on application startup"""
+    try:
+        logger.info("🔧 Checking for pending database migrations...")
+        from sqlalchemy import text, inspect
+        
+        # Check if created_by_id column exists
+        inspector = inspect(db.engine)
+        appointments_columns = [col['name'] for col in inspector.get_columns('appointments')]
+        
+        if 'created_by_id' not in appointments_columns:
+            logger.info("⚙️  Adding created_by_id column to appointments table...")
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE appointments ADD COLUMN created_by_id INTEGER;"))
+                conn.commit()
+            logger.info("✅ Migration complete: created_by_id column added")
+        
+        # Check if allocated_practitioner_id column exists in patients table
+        patients_columns = [col['name'] for col in inspector.get_columns('patients')]
+        
+        if 'allocated_practitioner_id' not in patients_columns:
+            logger.info("⚙️  Adding allocated_practitioner_id column to patients table...")
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE patients ADD COLUMN allocated_practitioner_id INTEGER REFERENCES users(id);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_patients_allocated_practitioner ON patients(allocated_practitioner_id);"))
+                conn.commit()
+            logger.info("✅ Migration complete: allocated_practitioner_id column added")
+        
+        # Check if is_company_wide column exists in availability_exceptions table
+        exceptions_columns = [col['name'] for col in inspector.get_columns('availability_exceptions')]
+        
+        if 'is_company_wide' not in exceptions_columns:
+            logger.info("⚙️  Adding is_company_wide column to availability_exceptions table...")
+            with db.engine.connect() as conn:
+                # Add the column with default False
+                conn.execute(text("ALTER TABLE availability_exceptions ADD COLUMN is_company_wide BOOLEAN DEFAULT FALSE NOT NULL;"))
+                # Make user_id nullable for company-wide blocks
+                conn.execute(text("ALTER TABLE availability_exceptions ALTER COLUMN user_id DROP NOT NULL;"))
+                # Create index for faster company-wide lookups
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availability_exceptions_company_wide ON availability_exceptions(is_company_wide, exception_date);"))
+                conn.commit()
+            logger.info("✅ Migration complete: is_company_wide column added")
+        
+        logger.info("✅ Database schema is up to date")
+            
+    except Exception as e:
+        logger.warning(f"Migration check failed (non-critical): {e}")
+
+# Run migrations with app context
+with app.app_context():
+    run_startup_migrations()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

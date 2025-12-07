@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}Company Settings - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-building"></i>
+                Company Settings
+            </h1>
+            <p class="text-gray-600 mt-2">Manage practice-wide settings, holidays, and office hours</p>
+        </div>
+    </div>
+
+    <!-- Company-Wide Holidays & Closures -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex justify-between items-start mb-6">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-calendar-times text-red-500"></i>
+                    Company-Wide Holidays & Closures
+                </h2>
+                <p class="text-sm text-gray-600 mt-1">
+                    <i class="fas fa-info-circle"></i>
+                    These dates apply to ALL practitioners - the entire practice is closed
+                </p>
+            </div>
+            <button onclick="openAddBlockModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                <i class="fas fa-plus"></i>
+                Add Holiday/Closure
+            </button>
+        </div>
+
+        <!-- Blocks List -->
+        <div id="blocksContainer" class="space-y-2">
+            {% if company_blocks %}
+                {% for block in company_blocks %}
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                    <div class="flex items-center gap-4">
+                        <div class="text-center min-w-[80px]">
+                            <div class="text-2xl font-bold text-gray-900">{{ block.exception_date.strftime('%d') }}</div>
+                            <div class="text-sm text-gray-600">{{ block.exception_date.strftime('%b %Y') }}</div>
+                            <div class="text-xs text-gray-500">{{ block.exception_date.strftime('%a') }}</div>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-gray-900">{{ block.reason or 'Company Holiday' }}</div>
+                            <div class="text-sm text-gray-600">
+                                {% if block.is_all_day %}
+                                    <i class="fas fa-clock"></i> All Day
+                                {% else %}
+                                    <i class="fas fa-clock"></i> {{ block.start_time.strftime('%H:%M') }} - {{ block.end_time.strftime('%H:%M') }}
+                                {% endif %}
+                            </div>
+                            <span class="inline-block mt-1 px-2 py-1 text-xs rounded-full 
+                                {% if block.exception_type == 'holiday' %}bg-red-100 text-red-800
+                                {% elif block.exception_type == 'vacation' %}bg-purple-100 text-purple-800
+                                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                {{ block.exception_type|title }}
+                            </span>
+                        </div>
+                    </div>
+                    <button onclick="deleteBlock({{ block.id }})" class="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50 transition-colors" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-calendar-check text-4xl mb-4"></i>
+                    <p>No company-wide blocks set up yet</p>
+                    <p class="text-sm mt-2">Click "Add Holiday/Closure" to create your first block</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Quick Add Common Holidays -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 class="font-semibold text-blue-900 mb-2">
+            <i class="fas fa-lightbulb"></i> Quick Tip
+        </h3>
+        <p class="text-sm text-blue-800">
+            Company-wide blocks automatically apply to all practitioners. Individual practitioners can still add their own personal time off in "My Availability".
+        </p>
+    </div>
+</div>
+
+<!-- Add Block Modal -->
+<div id="addBlockModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="display: none;">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div class="flex justify-between items-center p-6 border-b border-gray-200">
+            <h3 class="text-xl font-semibold text-gray-900">
+                <i class="fas fa-calendar-plus"></i>
+                Add Company-Wide Block
+            </h3>
+            <button onclick="closeAddBlockModal()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <form id="addBlockForm" class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-calendar"></i> Start Date *
+                </label>
+                <input type="date" id="startDate" required 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-calendar"></i> End Date (for multi-day closures)
+                </label>
+                <input type="date" id="endDate" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-500 mt-1">Leave blank for single day</p>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-tag"></i> Type *
+                </label>
+                <select id="blockType" required 
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="holiday">Public Holiday</option>
+                    <option value="vacation">Company Vacation</option>
+                    <option value="blocked">Practice Closed</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-comment"></i> Reason *
+                </label>
+                <input type="text" id="blockReason" required placeholder="e.g., Christmas Day, Summer Closure"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="isAllDay" checked 
+                       class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <label for="isAllDay" class="text-sm text-gray-700">All Day Closure</label>
+            </div>
+            
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeAddBlockModal()" 
+                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-check"></i> Add Block
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openAddBlockModal() {
+    document.getElementById('addBlockModal').style.display = 'flex';
+    // Set start date to today
+    document.getElementById('startDate').value = new Date().toISOString().split('T')[0];
+}
+
+function closeAddBlockModal() {
+    document.getElementById('addBlockModal').style.display = 'none';
+    document.getElementById('addBlockForm').reset();
+}
+
+// Handle form submission
+document.getElementById('addBlockForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value || startDate;
+    const blockType = document.getElementById('blockType').value;
+    const reason = document.getElementById('blockReason').value;
+    const isAllDay = document.getElementById('isAllDay').checked;
+    
+    if (!startDate || !reason) {
+        alert('Please fill in all required fields');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/company-settings/blocks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                start_date: startDate,
+                end_date: endDate,
+                exception_type: blockType,
+                reason: reason,
+                is_all_day: isAllDay
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ Successfully added ${data.dates.length} company-wide block(s)`);
+            closeAddBlockModal();
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error adding block:', error);
+        alert('❌ Failed to add block');
+    }
+});
+
+async function deleteBlock(blockId) {
+    if (!confirm('Are you sure you want to delete this company-wide block?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/company-settings/blocks/${blockId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ Block deleted successfully');
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error deleting block:', error);
+        alert('❌ Failed to delete block');
+    }
+}
+
+// Close modal when clicking outside
+document.getElementById('addBlockModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeAddBlockModal();
+    }
+});
+</script>
+{% endblock %}
+
