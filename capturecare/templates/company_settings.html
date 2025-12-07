@@ -77,6 +77,83 @@
         </div>
     </div>
 
+    <!-- Company Office Hours -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex justify-between items-start mb-6">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-clock text-blue-500"></i>
+                    Company Office Hours
+                </h2>
+                <p class="text-sm text-gray-600 mt-1">
+                    <i class="fas fa-info-circle"></i>
+                    Set regular business hours for the entire practice
+                </p>
+            </div>
+            <button onclick="openAddOfficeHoursModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                <i class="fas fa-plus"></i>
+                Add Office Hours
+            </button>
+        </div>
+
+        <!-- Office Hours List -->
+        <div id="officeHoursContainer" class="space-y-2">
+            {% if office_hours %}
+                {% for pattern in office_hours %}
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                    <div class="flex items-center gap-4">
+                        <div class="text-center min-w-[60px]">
+                            <i class="fas fa-calendar-week text-2xl text-blue-600"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-gray-900">{{ pattern.title }}</div>
+                            <div class="text-sm text-gray-600">
+                                <i class="fas fa-clock"></i> 
+                                {{ pattern.start_time.strftime('%I:%M %p') }} - {{ pattern.end_time.strftime('%I:%M %p') }}
+                            </div>
+                            <div class="text-sm text-gray-600 mt-1">
+                                <i class="fas fa-calendar-day"></i>
+                                {% if pattern.weekdays %}
+                                    {% set days_map = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun'} %}
+                                    {% set day_nums = pattern.weekdays.split(',') %}
+                                    {% for day_num in day_nums %}
+                                        <span class="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs mr-1">{{ days_map[day_num|int] }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    All days
+                                {% endif %}
+                            </div>
+                            {% if not pattern.is_active %}
+                                <span class="inline-block mt-1 px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                                    Inactive
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="toggleOfficeHours({{ pattern.id }}, {{ pattern.is_active|lower }})" 
+                                class="text-{{ 'gray' if pattern.is_active else 'green' }}-600 hover:text-{{ 'gray' if pattern.is_active else 'green' }}-800 p-2 rounded-lg hover:bg-gray-100 transition-colors" 
+                                title="{{ 'Deactivate' if pattern.is_active else 'Activate' }}">
+                            <i class="fas fa-{{ 'pause' if pattern.is_active else 'play' }}"></i>
+                        </button>
+                        <button onclick="deleteOfficeHours({{ pattern.id }})" 
+                                class="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50 transition-colors" 
+                                title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-clock text-4xl mb-4"></i>
+                    <p>No office hours set up yet</p>
+                    <p class="text-sm mt-2">Click "Add Office Hours" to set your practice's regular business hours</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- Quick Add Common Holidays -->
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 class="font-semibold text-blue-900 mb-2">
@@ -85,6 +162,104 @@
         <p class="text-sm text-blue-800">
             Company-wide blocks automatically apply to all practitioners. Individual practitioners can still add their own personal time off in "My Availability".
         </p>
+    </div>
+</div>
+
+<!-- Add Office Hours Modal -->
+<div id="addOfficeHoursModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="display: none;">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div class="flex justify-between items-center p-6 border-b border-gray-200">
+            <h3 class="text-xl font-semibold text-gray-900">
+                <i class="fas fa-clock"></i>
+                Add Company Office Hours
+            </h3>
+            <button onclick="closeAddOfficeHoursModal()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <form id="addOfficeHoursForm" class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-tag"></i> Title *
+                </label>
+                <input type="text" id="officeHoursTitle" required placeholder="e.g., Office Hours, Morning Shift"
+                       value="Office Hours"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-calendar-day"></i> Days of Week *
+                </label>
+                <div class="grid grid-cols-7 gap-2">
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="0" class="mb-1">
+                        <span class="text-xs">Mon</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="1" class="mb-1">
+                        <span class="text-xs">Tue</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="2" class="mb-1">
+                        <span class="text-xs">Wed</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="3" class="mb-1">
+                        <span class="text-xs">Thu</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="4" class="mb-1">
+                        <span class="text-xs">Fri</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="5" class="mb-1">
+                        <span class="text-xs">Sat</span>
+                    </label>
+                    <label class="flex flex-col items-center cursor-pointer">
+                        <input type="checkbox" name="weekday" value="6" class="mb-1">
+                        <span class="text-xs">Sun</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-clock"></i> Start Time *
+                    </label>
+                    <input type="time" id="officeHoursStartTime" required value="09:00"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-clock"></i> End Time *
+                    </label>
+                    <input type="time" id="officeHoursEndTime" required value="17:00"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-comment"></i> Notes (Optional)
+                </label>
+                <textarea id="officeHoursNotes" rows="2" placeholder="Any additional information..."
+                          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+            </div>
+            
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeAddOfficeHoursModal()" 
+                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button type="submit" 
+                        class="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-check"></i> Add Hours
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -244,6 +419,132 @@ async function deleteBlock(blockId) {
 document.getElementById('addBlockModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeAddBlockModal();
+    }
+});
+
+// ===== Office Hours Functions =====
+
+function openAddOfficeHoursModal() {
+    document.getElementById('addOfficeHoursModal').style.display = 'flex';
+    // Pre-select weekdays (Mon-Fri)
+    const weekdayCheckboxes = document.querySelectorAll('input[name="weekday"]');
+    weekdayCheckboxes.forEach((checkbox, index) => {
+        if (index < 5) { // Mon-Fri
+            checkbox.checked = true;
+        }
+    });
+}
+
+function closeAddOfficeHoursModal() {
+    document.getElementById('addOfficeHoursModal').style.display = 'none';
+    document.getElementById('addOfficeHoursForm').reset();
+}
+
+// Handle office hours form submission
+document.getElementById('addOfficeHoursForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const title = document.getElementById('officeHoursTitle').value;
+    const startTime = document.getElementById('officeHoursStartTime').value;
+    const endTime = document.getElementById('officeHoursEndTime').value;
+    const notes = document.getElementById('officeHoursNotes').value;
+    
+    // Get selected weekdays
+    const selectedDays = [];
+    document.querySelectorAll('input[name="weekday"]:checked').forEach(checkbox => {
+        selectedDays.push(checkbox.value);
+    });
+    
+    if (selectedDays.length === 0) {
+        alert('Please select at least one day of the week');
+        return;
+    }
+    
+    if (!title || !startTime || !endTime) {
+        alert('Please fill in all required fields');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/company-settings/office-hours', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: title,
+                start_time: startTime,
+                end_time: endTime,
+                weekdays: selectedDays.join(','),
+                notes: notes
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ Office hours added successfully');
+            closeAddOfficeHoursModal();
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error adding office hours:', error);
+        alert('❌ Failed to add office hours');
+    }
+});
+
+async function toggleOfficeHours(patternId, isCurrentlyActive) {
+    const action = isCurrentlyActive ? 'deactivate' : 'activate';
+    
+    try {
+        const response = await fetch(`/api/company-settings/office-hours/${patternId}/toggle`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ Office hours ${action}d successfully`);
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error toggling office hours:', error);
+        alert('❌ Failed to toggle office hours');
+    }
+}
+
+async function deleteOfficeHours(patternId) {
+    if (!confirm('Are you sure you want to delete these office hours?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/company-settings/office-hours/${patternId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ Office hours deleted successfully');
+            window.location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error deleting office hours:', error);
+        alert('❌ Failed to delete office hours');
+    }
+}
+
+// Close office hours modal when clicking outside
+document.getElementById('addOfficeHoursModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeAddOfficeHoursModal();
     }
 });
 </script>

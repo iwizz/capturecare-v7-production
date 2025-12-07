@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for, session
 from flask_login import login_required, current_user
-from models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, Device, HealthData
+from models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, UserAvailability, Device, HealthData
 from datetime import datetime, timedelta, time
 import logging
 import os
@@ -183,7 +183,7 @@ def get_calendar_events():
             logger.info("Cache table not found, using standard query")
             query = Appointment.query.options(
                 orm.joinedload(Appointment.patient),
-                orm.joinedload(Appointment.practitioner)
+                orm.joinedload(Appointment.assigned_practitioner)
             )
             
             if practitioner_id:
@@ -203,10 +203,10 @@ def get_calendar_events():
                 practitioner_name = "Unassigned"
                 color = "#3788d8"
                 
-                if apt.practitioner:
-                    practitioner_name = apt.practitioner.full_name
-                    if apt.practitioner.calendar_color:
-                        color = apt.practitioner.calendar_color
+                if apt.assigned_practitioner:
+                    practitioner_name = apt.assigned_practitioner.full_name
+                    if apt.assigned_practitioner.calendar_color:
+                        color = apt.assigned_practitioner.calendar_color
                 
                 patient_name = "Unknown Patient"
                 if apt.patient:
@@ -234,12 +234,117 @@ def get_calendar_events():
     except Exception as e:
         logger.error(f"Error fetching calendar events: {e}", exc_info=True)
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         try:
             db.session.remove()
         except:
             pass
+
+@appointments_bp.route('/api/calendar/appointments', methods=['POST', 'PUT'])
+@login_required
+def create_or_update_calendar_appointment():
+    """Create or update appointment from calendar UI (accepts date/time/duration format)"""
+    try:
+        data = request.get_json()
+        appointment_id = request.args.get('id') or data.get('id')
+        
+        # Extract data from request
+        patient_id = data.get('patient_id')
+        practitioner_id = data.get('practitioner_id')
+        title = data.get('title', 'Appointment')
+        appointment_type = data.get('appointment_type') or data.get('type', 'Consultation')
+        notes = data.get('notes')
+        location = data.get('location')
+        status = data.get('status', 'scheduled')
+        
+        # Parse date and time
+        date_str = data.get('date')
+        time_str = data.get('time')
+        duration_minutes = int(data.get('duration_minutes', 60))
+        
+        # Combine date and time into datetime objects
+        start_time = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M')
+        end_time = start_time + timedelta(minutes=duration_minutes)
+        
+        if appointment_id:
+            # Update existing appointment
+            appointment = Appointment.query.get_or_404(appointment_id)
+            appointment.patient_id = patient_id
+            appointment.practitioner_id = practitioner_id
+            appointment.title = title
+            appointment.appointment_type = appointment_type
+            appointment.start_time = start_time
+            appointment.end_time = end_time
+            appointment.duration_minutes = duration_minutes
+            appointment.location = location
+            appointment.notes = notes
+            appointment.status = status
+        else:
+            # Create new appointment
+            appointment = Appointment(
+                patient_id=patient_id,
+                practitioner_id=practitioner_id,
+                title=title,
+                appointment_type=appointment_type,
+                start_time=start_time,
+                end_time=end_time,
+                duration_minutes=duration_minutes,
+                location=location,
+                notes=notes,
+                status=status,
+                created_by_id=current_user.id
+            )
+            db.session.add(appointment)
+        
+        db.session.commit()
+        
+        # Sync to Google Calendar if configured
+        calendar_sync = get_calendar_sync()
+        if calendar_sync and practitioner_id:
+            try:
+                patient = Patient.query.get(patient_id) if patient_id else None
+                patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
+                description = f"Patient: {patient_name}\nType: {appointment_type}\nNotes: {notes or 'None'}"
+                
+                if appointment.google_calendar_event_id:
+                    # Update existing event
+                    calendar_sync.update_event(
+                        event_id=appointment.google_calendar_event_id,
+                        summary=f"{title} - {patient_name}",
+                        start_time=start_time,
+                        end_time=end_time,
+                        description=description
+                    )
+                else:
+                    # Create new event
+                    event_id = calendar_sync.create_event(
+                        summary=f"{title} - {patient_name}",
+                        start_time=start_time,
+                        end_time=end_time,
+                        description=description,
+                        attendee_email=patient.email if patient else None
+                    )
+                    if event_id:
+                        appointment.google_calendar_event_id = event_id
+                        db.session.commit()
+                        logger.info(f"Synced appointment {appointment.id} to Google Calendar: {event_id}")
+            except Exception as e:
+                logger.error(f"Failed to sync to Google Calendar: {e}")
+        
+        return jsonify({
+            'success': True,
+            'appointment': {
+                'id': appointment.id,
+                'title': appointment.title,
+                'start': appointment.start_time.isoformat(),
+                'end': appointment.end_time.isoformat()
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error creating/updating calendar appointment: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @appointments_bp.route('/api/appointments', methods=['POST'])
 @login_required
@@ -253,6 +358,7 @@ def create_appointment():
         start_time_str = data.get('start_time')
         end_time_str = data.get('end_time')
         notes = data.get('notes')
+        location = data.get('location')
         appointment_type = data.get('type', 'Consultation')
         
         start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
@@ -263,6 +369,9 @@ def create_appointment():
             start_time = start_time.replace(tzinfo=None)
         if end_time.tzinfo:
             end_time = end_time.replace(tzinfo=None)
+        
+        # Calculate duration in minutes
+        duration_minutes = int((end_time - start_time).total_seconds() / 60)
             
         appointment = Appointment(
             patient_id=patient_id,
@@ -270,6 +379,8 @@ def create_appointment():
             title=title,
             start_time=start_time,
             end_time=end_time,
+            duration_minutes=duration_minutes,
+            location=location,
             notes=notes,
             appointment_type=appointment_type,
             status='scheduled',
@@ -301,7 +412,7 @@ def create_appointment():
                 )
                 
                 if event_id:
-                    appointment.google_event_id = event_id
+                    appointment.google_calendar_event_id = event_id
                     db.session.commit()
                     logger.info(f"Synced appointment {appointment.id} to Google Calendar: {event_id}")
             except Exception as e:
@@ -331,9 +442,9 @@ def manage_appointment(appointment_id):
         try:
             # Remove from Google Calendar if synced
             calendar_sync = get_calendar_sync()
-            if calendar_sync and appointment.google_event_id:
+            if calendar_sync and appointment.google_calendar_event_id:
                 try:
-                    calendar_sync.delete_event(appointment.google_event_id)
+                    calendar_sync.delete_event(appointment.google_calendar_event_id)
                 except Exception as e:
                     logger.error(f"Failed to delete from Google Calendar: {e}")
             
@@ -373,7 +484,7 @@ def manage_appointment(appointment_id):
             
             # Update Google Calendar if synced
             calendar_sync = get_calendar_sync()
-            if calendar_sync and appointment.google_event_id:
+            if calendar_sync and appointment.google_calendar_event_id:
                 try:
                     # Get updated details
                     patient = appointment.patient
@@ -381,7 +492,7 @@ def manage_appointment(appointment_id):
                     description = f"Patient: {patient_name}\nType: {appointment.appointment_type}\nNotes: {appointment.notes or 'None'}"
                     
                     calendar_sync.update_event(
-                        event_id=appointment.google_event_id,
+                        event_id=appointment.google_calendar_event_id,
                         summary=f"{appointment.title} - {patient_name}",
                         start_time=appointment.start_time,
                         end_time=appointment.end_time,
@@ -432,7 +543,7 @@ def send_appointment_confirmation(appointment_id):
                         patient_name=patient.first_name,
                         date=appointment.start_time.strftime('%d/%m/%Y'),
                         time=appointment.start_time.strftime('%I:%M %p'),
-                        practitioner=appointment.practitioner.full_name if appointment.practitioner else 'CaptureCare'
+                        practitioner=appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else 'CaptureCare'
                     )
                 
                 if notification_service.send_sms(
@@ -465,7 +576,7 @@ def send_appointment_confirmation(appointment_id):
                         patient_name=patient.first_name,
                         date=appointment.start_time.strftime('%d/%m/%Y'),
                         time=appointment.start_time.strftime('%I:%M %p'),
-                        practitioner=appointment.practitioner.full_name if appointment.practitioner else 'CaptureCare',
+                        practitioner=appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else 'CaptureCare',
                         location="CaptureCare Clinic" # Could be dynamic
                     )
                 
@@ -685,7 +796,7 @@ def move_calendar_appointment(appointment_id):
         
         # Sync with Google Calendar
         calendar_sync = get_calendar_sync()
-        if calendar_sync and appointment.google_event_id:
+        if calendar_sync and appointment.google_calendar_event_id:
             try:
                 # Get updated details
                 patient = appointment.patient
@@ -693,7 +804,7 @@ def move_calendar_appointment(appointment_id):
                 description = f"Patient: {patient_name}\nType: {appointment.appointment_type}\nNotes: {appointment.notes or 'None'}"
                 
                 calendar_sync.update_event(
-                    event_id=appointment.google_event_id,
+                    event_id=appointment.google_calendar_event_id,
                     summary=f"{appointment.title} - {patient_name}",
                     start_time=appointment.start_time,
                     end_time=appointment.end_time,
@@ -831,9 +942,14 @@ def get_availability_blocks():
                         elif pattern.frequency == 'weekdays' and day_of_week_num < 5:
                             applies = True
                         elif pattern.frequency in ['weekly', 'custom']:
-                            if pattern.weekdays:
-                                day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
-                                applies = day_of_week_num in day_numbers
+                            if pattern.weekdays and pattern.weekdays.strip():
+                                try:
+                                    day_numbers = [int(d.strip()) for d in pattern.weekdays.split(',') if d.strip().isdigit()]
+                                    applies = day_of_week_num in day_numbers
+                                except (ValueError, AttributeError):
+                                    applies = False
+                            else:
+                                applies = False
                         
                         if applies:
                             # Get partial blocks for this day
@@ -1001,14 +1117,24 @@ def get_batch_availability():
                 try:
                     target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                     
-                    # Get exceptions for this date
+                    # Check for company-wide blocks first (practice closed)
+                    company_wide_blocks = AvailabilityException.query.filter_by(
+                        is_company_wide=True,
+                        exception_date=target_date
+                    ).all()
+                    
+                    # If practice is closed company-wide, no one is available
+                    company_wide_full_block = any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
+                                                 for ex in company_wide_blocks)
+                    
+                    # Get exceptions for this practitioner
                     exceptions = AvailabilityException.query.filter_by(
                         user_id=practitioner_id,
                         exception_date=target_date
                     ).all()
                     
-                    # Check if entire day is blocked
-                    full_day_block = any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
+                    # Check if entire day is blocked (company-wide OR individual)
+                    full_day_block = company_wide_full_block or any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
                                         for ex in exceptions)
                     
                     available_slots = []
@@ -1037,8 +1163,27 @@ def get_batch_availability():
                                     applies = day_of_week_num in day_numbers
                             
                             if applies:
-                                # Get partial blocks for this day
+                                # Get partial blocks for this day (company-wide + individual)
                                 partial_blocks = []
+                                # Company-wide partial blocks
+                                for ex in company_wide_blocks:
+                                    if not ex.is_all_day and ex.start_time and ex.end_time:
+                                        try:
+                                            if isinstance(ex.start_time, str):
+                                                block_start = datetime.strptime(ex.start_time, '%H:%M').time()
+                                            else:
+                                                block_start = ex.start_time
+                                                
+                                            if isinstance(ex.end_time, str):
+                                                block_end = datetime.strptime(ex.end_time, '%H:%M').time()
+                                            else:
+                                                block_end = ex.end_time
+                                                
+                                            partial_blocks.append((block_start, block_end))
+                                        except:
+                                            pass
+                                
+                                # Individual practitioner partial blocks
                                 for ex in exceptions:
                                     if not ex.is_all_day and ex.start_time and ex.end_time:
                                         try:
@@ -1208,14 +1353,24 @@ def get_practitioner_availability(practitioner_id):
         logger.info(f"Availability check: practitioner_id={practitioner_id}, date={date_str}, duration={duration_minutes}")
         logger.info(f"Found {len(patterns)} availability patterns")
         
-        # Get exceptions for this date
+        # Check for company-wide blocks first (practice closed)
+        company_wide_blocks = AvailabilityException.query.filter_by(
+            is_company_wide=True,
+            exception_date=target_date
+        ).all()
+        
+        # If practice is closed company-wide, no one is available
+        company_wide_full_block = any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
+                                     for ex in company_wide_blocks)
+        
+        # Get exceptions for this practitioner
         exceptions = AvailabilityException.query.filter_by(
             user_id=practitioner_id,
             exception_date=target_date
         ).all()
         
-        # Check if entire day is blocked
-        full_day_block = any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
+        # Check if entire day is blocked (company-wide OR individual)
+        full_day_block = company_wide_full_block or any(ex.is_all_day and ex.exception_type in ['blocked', 'holiday', 'vacation'] 
                             for ex in exceptions)
         
         if not full_day_block:
@@ -1254,10 +1409,16 @@ def get_practitioner_availability(practitioner_id):
                             applies = day_of_week_num in day_numbers
                     
                     if applies:
-                        # Check if exception blocks this time
-                        partial_block_times = [(ex.start_time, ex.end_time) 
+                        # Check if exception blocks this time (company-wide + individual)
+                        partial_block_times = []
+                        # Company-wide partial blocks
+                        partial_block_times.extend([(ex.start_time, ex.end_time) 
+                                              for ex in company_wide_blocks 
+                                              if not ex.is_all_day])
+                        # Individual practitioner partial blocks
+                        partial_block_times.extend([(ex.start_time, ex.end_time) 
                                               for ex in exceptions 
-                                              if not ex.is_all_day]
+                                              if not ex.is_all_day])
                         
                         # Generate time slots (every 30 minutes)
                         current_time = pattern.start_time
@@ -1348,18 +1509,70 @@ def get_practitioner_availability(practitioner_id):
 @appointments_bp.route('/my-availability')
 @login_required
 def my_availability():
-    """Practitioner's own availability management page"""
-    patterns = AvailabilityPattern.query.filter_by(user_id=current_user.id).order_by(AvailabilityPattern.valid_from.desc()).all()
-    exceptions = AvailabilityException.query.filter_by(user_id=current_user.id).order_by(AvailabilityException.exception_date.desc()).all()
-    return render_template('my_availability.html', patterns=patterns, exceptions=exceptions)
+    """Practitioner's own availability management page (admins can manage any practitioner)"""
+    # Check if admin is managing another practitioner's availability
+    manage_user_id = request.args.get('user_id', type=int)
+    
+    # Admins can manage any practitioner, non-admins can only manage their own
+    if manage_user_id and manage_user_id != current_user.id:
+        if not current_user.is_admin:
+            flash('You do not have permission to manage other practitioners\' availability', 'error')
+            return redirect(url_for('appointments.my_availability'))
+        target_user = User.query.get_or_404(manage_user_id)
+    else:
+        target_user = current_user
+        manage_user_id = current_user.id
+    
+    patterns = AvailabilityPattern.query.filter_by(
+        user_id=manage_user_id, 
+        is_company_wide=False
+    ).order_by(AvailabilityPattern.valid_from.desc()).all()
+    
+    exceptions = AvailabilityException.query.filter_by(
+        user_id=manage_user_id,
+        is_company_wide=False
+    ).order_by(AvailabilityException.exception_date.desc()).all()
+    
+    # Get all practitioners for admin dropdown
+    all_practitioners = []
+    if current_user.is_admin:
+        all_practitioners = User.query.filter_by(is_active=True).order_by(User.first_name, User.last_name).all()
+    
+    return render_template('my_availability_v2.html', 
+                         patterns=patterns, 
+                         exceptions=exceptions,
+                         target_user=target_user,
+                         all_practitioners=all_practitioners,
+                         is_admin=current_user.is_admin)
 
 @appointments_bp.route('/api/my-availability', methods=['GET'])
 @login_required
 def get_my_availability():
-    """Get current user's availability patterns and exceptions"""
+    """Get user's availability patterns and exceptions (admins can view any practitioner)"""
     try:
-        patterns = AvailabilityPattern.query.filter_by(user_id=current_user.id).all()
-        exceptions = AvailabilityException.query.filter_by(user_id=current_user.id).all()
+        # Check if admin is viewing another practitioner's availability
+        manage_user_id = request.args.get('user_id', type=int, default=current_user.id)
+        
+        # Admins can view any practitioner, non-admins can only view their own
+        if manage_user_id != current_user.id and not current_user.is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        
+        # Get UserAvailability records (simple day_of_week format)
+        user_availability = UserAvailability.query.filter_by(user_id=manage_user_id).all()
+        availability_list = []
+        for avail in user_availability:
+            availability_list.append({
+                'id': avail.id,
+                'day_of_week': avail.day_of_week,
+                'start_time': avail.start_time.strftime('%H:%M') if avail.start_time else None,
+                'end_time': avail.end_time.strftime('%H:%M') if avail.end_time else None,
+                'specific_date': avail.specific_date.isoformat() if avail.specific_date else None,
+                'is_available': avail.is_available,
+                'notes': avail.notes
+            })
+        
+        patterns = AvailabilityPattern.query.filter_by(user_id=manage_user_id, is_company_wide=False).all()
+        exceptions = AvailabilityException.query.filter_by(user_id=manage_user_id, is_company_wide=False).all()
         
         pattern_list = []
         for pattern in patterns:
@@ -1367,7 +1580,7 @@ def get_my_availability():
                 'id': pattern.id,
                 'title': pattern.title,
                 'frequency': pattern.frequency,
-                'weekdays': pattern.weekdays.split(',') if pattern.weekdays else [],
+                'weekdays': pattern.weekdays if pattern.weekdays else '',  # Return as string for frontend .split()
                 'start_time': pattern.start_time.strftime('%H:%M'),
                 'end_time': pattern.end_time.strftime('%H:%M'),
                 'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
@@ -1388,7 +1601,12 @@ def get_my_availability():
                 'reason': exception.reason
             })
         
-        return jsonify({'success': True, 'patterns': pattern_list, 'exceptions': exception_list})
+        return jsonify({
+            'success': True, 
+            'availability': availability_list,  # For simple day_of_week format
+            'patterns': pattern_list, 
+            'exceptions': exception_list
+        })
     except Exception as e:
         logger.error(f"Error fetching user availability: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1396,14 +1614,37 @@ def get_my_availability():
 @appointments_bp.route('/api/my-availability', methods=['POST'])
 @login_required
 def add_my_availability():
-    """Add a new availability pattern or exception for the current user"""
+    """Add a new availability pattern or exception (admins can add for any practitioner)"""
     try:
         data = request.get_json()
         item_type = data.get('type') # 'pattern' or 'exception'
         
-        if item_type == 'pattern':
+        # Check if admin is managing another practitioner's availability
+        manage_user_id = data.get('user_id', current_user.id)
+        
+        # Admins can manage any practitioner, non-admins can only manage their own
+        if manage_user_id != current_user.id and not current_user.is_admin:
+            return jsonify({'success': False, 'error': 'Permission denied'}), 403
+        
+        # Handle simple UserAvailability format (day_of_week, start_time, end_time)
+        if 'day_of_week' in data and data.get('day_of_week') is not None:
+            new_availability = UserAvailability(
+                user_id=manage_user_id,
+                day_of_week=int(data.get('day_of_week')),
+                start_time=datetime.strptime(data.get('start_time'), '%H:%M').time(),
+                end_time=datetime.strptime(data.get('end_time'), '%H:%M').time(),
+                specific_date=datetime.strptime(data.get('specific_date'), '%Y-%m-%d').date() if data.get('specific_date') else None,
+                is_available=data.get('is_available', True),
+                notes=data.get('notes')
+            )
+            db.session.add(new_availability)
+            db.session.commit()
+            return jsonify({'success': True, 'message': 'Availability block added', 'id': new_availability.id}), 201
+        
+        elif item_type == 'pattern':
             new_pattern = AvailabilityPattern(
-                user_id=current_user.id,
+                user_id=manage_user_id,
+                is_company_wide=False,
                 title=data.get('title'),
                 frequency=data.get('frequency'),
                 weekdays=','.join(map(str, data.get('weekdays', []))),
@@ -1420,7 +1661,8 @@ def add_my_availability():
         
         elif item_type == 'exception':
             new_exception = AvailabilityException(
-                user_id=current_user.id,
+                user_id=manage_user_id,
+                is_company_wide=False,
                 exception_date=datetime.strptime(data.get('exception_date'), '%Y-%m-%d').date(),
                 exception_type=data.get('exception_type'),
                 is_all_day=data.get('is_all_day', False),
@@ -1432,7 +1674,7 @@ def add_my_availability():
             db.session.commit()
             return jsonify({'success': True, 'message': 'Availability exception added', 'id': new_exception.id}), 201
         
-        return jsonify({'success': False, 'error': 'Invalid item type'}), 400
+        return jsonify({'success': False, 'error': 'Invalid item type or missing required fields'}), 400
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error adding availability: {e}")
@@ -1443,6 +1685,13 @@ def add_my_availability():
 def delete_my_availability(slot_id):
     """Delete an availability pattern or exception for the current user"""
     try:
+        # Try to delete as UserAvailability (simple format)
+        user_availability = UserAvailability.query.filter_by(id=slot_id, user_id=current_user.id).first()
+        if user_availability:
+            db.session.delete(user_availability)
+            db.session.commit()
+            return jsonify({'success': True, 'message': 'Availability block deleted'})
+        
         # Try to delete as pattern
         pattern = AvailabilityPattern.query.filter_by(id=slot_id, user_id=current_user.id).first()
         if pattern:
@@ -1475,7 +1724,7 @@ def manage_availability_patterns():
                     'id': pattern.id,
                     'title': pattern.title,
                     'frequency': pattern.frequency,
-                    'weekdays': pattern.weekdays.split(',') if pattern.weekdays else [],
+                    'weekdays': pattern.weekdays if pattern.weekdays else '',  # Return as string for frontend .split()
                     'start_time': pattern.start_time.strftime('%H:%M'),
                     'end_time': pattern.end_time.strftime('%H:%M'),
                     'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,
@@ -1491,11 +1740,20 @@ def manage_availability_patterns():
     elif request.method == 'POST':
         try:
             data = request.get_json()
+            # Handle weekdays - can be string (comma-separated) or array
+            weekdays_data = data.get('weekdays', [])
+            if isinstance(weekdays_data, str):
+                weekdays_str = weekdays_data  # Already a string like '0,1,2,3,4'
+            elif isinstance(weekdays_data, list):
+                weekdays_str = ','.join(map(str, weekdays_data))
+            else:
+                weekdays_str = ''
+            
             new_pattern = AvailabilityPattern(
                 user_id=current_user.id,
                 title=data.get('title'),
                 frequency=data.get('frequency'),
-                weekdays=','.join(map(str, data.get('weekdays', []))),
+                weekdays=weekdays_str,
                 start_time=datetime.strptime(data.get('start_time'), '%H:%M').time(),
                 end_time=datetime.strptime(data.get('end_time'), '%H:%M').time(),
                 valid_from=datetime.strptime(data.get('valid_from'), '%Y-%m-%d').date() if data.get('valid_from') else None,
@@ -1519,9 +1777,21 @@ def update_delete_availability_pattern(pattern_id):
     if request.method == 'PUT':
         try:
             data = request.get_json()
+            # Handle weekdays - can be string (comma-separated) or array
+            if 'weekdays' in data:
+                weekdays_data = data.get('weekdays')
+                if isinstance(weekdays_data, str):
+                    pattern.weekdays = weekdays_data  # Already a string
+                elif isinstance(weekdays_data, list):
+                    pattern.weekdays = ','.join(map(str, weekdays_data))
+                else:
+                    pattern.weekdays = ''
+            else:
+                # Keep existing weekdays if not provided
+                pattern.weekdays = pattern.weekdays
+            
             pattern.title = data.get('title', pattern.title)
             pattern.frequency = data.get('frequency', pattern.frequency)
-            pattern.weekdays = ','.join(map(str, data.get('weekdays', pattern.weekdays.split(',') if pattern.weekdays else [])))
             pattern.start_time = datetime.strptime(data.get('start_time'), '%H:%M').time() if data.get('start_time') else pattern.start_time
             pattern.end_time = datetime.strptime(data.get('end_time'), '%H:%M').time() if data.get('end_time') else pattern.end_time
             pattern.valid_from = datetime.strptime(data.get('valid_from'), '%Y-%m-%d').date() if data.get('valid_from') else pattern.valid_from
@@ -1718,7 +1988,7 @@ def get_appointment(appointment_id):
                 'patient_id': appointment.patient_id,
                 'patient_name': f"{appointment.patient.first_name} {appointment.patient.last_name}",
                 'practitioner_id': appointment.practitioner_id,
-                'practitioner_name': appointment.practitioner.full_name if appointment.practitioner else 'Unassigned',
+                'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else 'Unassigned',
                 'start_time': appointment.start_time.strftime('%I:%M %p') if appointment.start_time else '',
                 'end_time': appointment.end_time.strftime('%I:%M %p') if appointment.end_time else '',
                 'appointment_type': appointment.appointment_type,
@@ -1789,7 +2059,7 @@ def check_appointment_conflict():
             ).all()
             
             if conflicting_appointments:
-                practitioner_name = appointment.practitioner.full_name if appointment.practitioner else 'Practitioner'
+                practitioner_name = appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else 'Practitioner'
                 conflict_msg = f"This time overlaps with another appointment for {practitioner_name}."
                 # Specific details could be added
                 return jsonify({
@@ -1813,9 +2083,9 @@ def delete_calendar_appointment(appointment_id):
         
         # Delete from Google Calendar
         calendar_sync = get_calendar_sync()
-        if calendar_sync and appointment.google_event_id:
+        if calendar_sync and appointment.google_calendar_event_id:
             try:
-                calendar_sync.delete_event(appointment.google_event_id)
+                calendar_sync.delete_event(appointment.google_calendar_event_id)
             except Exception as e:
                 logger.warning(f"Google Calendar delete failed: {e}")
         
@@ -1834,7 +2104,9 @@ def get_patient_appointments(patient_id):
     """Get all appointments for a specific patient"""
     try:
         patient = Patient.query.get_or_404(patient_id)
-        appointments = Appointment.query.filter_by(patient_id=patient_id).order_by(Appointment.start_time.desc()).all()
+        appointments = Appointment.query.filter_by(patient_id=patient_id).filter(
+            Appointment.status != 'cancelled'
+        ).order_by(Appointment.start_time.desc()).all()
         
         appointment_list = []
         for apt in appointments:
@@ -1845,7 +2117,7 @@ def get_patient_appointments(patient_id):
                 'end_time': apt.end_time.isoformat() if apt.end_time else None,
                 'status': apt.status,
                 'type': apt.appointment_type,
-                'practitioner_name': apt.practitioner.full_name if apt.practitioner else 'Unassigned',
+                'practitioner_name': apt.assigned_practitioner.full_name if apt.assigned_practitioner else 'Unassigned',
                 'notes': apt.notes
             })
         
@@ -1867,13 +2139,22 @@ def add_patient_appointment(patient_id):
     try:
         data = request.get_json()
         
+        # Parse start_time
         start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-        end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-        
         if start_time.tzinfo:
             start_time = start_time.replace(tzinfo=None)
-        if end_time.tzinfo:
-            end_time = end_time.replace(tzinfo=None)
+        
+        # VALIDATION: Only allow future appointments
+        now = datetime.now()
+        if start_time < now:
+            return jsonify({
+                'success': False,
+                'error': 'Cannot book appointments in the past. Please select a future date and time.'
+            }), 400
+        
+        # Calculate end_time from start_time + duration
+        duration_minutes = int(data.get('duration_minutes', 60))
+        end_time = start_time + timedelta(minutes=duration_minutes)
         
         new_appointment = Appointment(
             patient_id=patient_id,
@@ -1882,7 +2163,7 @@ def add_patient_appointment(patient_id):
             appointment_type=data.get('appointment_type', 'Consultation'),
             start_time=start_time,
             end_time=end_time,
-            duration_minutes=int((end_time - start_time).total_seconds() / 60),
+            duration_minutes=duration_minutes,
             location=data.get('location'),
             notes=data.get('notes'),
             status=data.get('status', 'scheduled'),
@@ -1910,7 +2191,7 @@ def add_patient_appointment(patient_id):
                 )
                 
                 if event_id:
-                    new_appointment.google_event_id = event_id
+                    new_appointment.google_calendar_event_id = event_id
                     db.session.commit()
                     logger.info(f"Synced appointment {new_appointment.id} to Google Calendar: {event_id}")
             except Exception as e:
@@ -1955,13 +2236,13 @@ def update_patient_appointment(patient_id, appointment_id):
         
         # Sync to Google Calendar if configured
         calendar_sync = get_calendar_sync()
-        if calendar_sync and appointment.google_event_id:
+        if calendar_sync and appointment.google_calendar_event_id:
             try:
                 patient = appointment.patient
                 description = f"Patient: {patient.first_name} {patient.last_name}\nType: {appointment.appointment_type}\nNotes: {appointment.notes or 'None'}"
                 
                 calendar_sync.update_event(
-                    event_id=appointment.google_event_id,
+                    event_id=appointment.google_calendar_event_id,
                     summary=f"{appointment.title} - {patient.first_name} {patient.last_name}",
                     start_time=appointment.start_time,
                     end_time=appointment.end_time,
@@ -1986,9 +2267,9 @@ def delete_patient_appointment(patient_id, appointment_id):
         
         # Delete from Google Calendar
         calendar_sync = get_calendar_sync()
-        if calendar_sync and appointment.google_event_id:
+        if calendar_sync and appointment.google_calendar_event_id:
             try:
-                calendar_sync.delete_event(appointment.google_event_id)
+                calendar_sync.delete_event(appointment.google_calendar_event_id)
             except Exception as e:
                 logger.warning(f"Google Calendar delete failed: {e}")
         

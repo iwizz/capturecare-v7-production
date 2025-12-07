@@ -100,9 +100,9 @@
     <div id="monthGridContainer"></div>
 </div>
 
-<!-- FullCalendar View (for Day view) -->
-<div id="fullCalendarView" class="bg-white rounded-lg shadow-md p-6 hidden">
-    <div id="calendar"></div>
+<!-- Custom Day Grid View (replaces FullCalendar) -->
+<div id="dayGridView" class="bg-white rounded-lg shadow-md p-6 hidden">
+    <div id="dayGridContainer"></div>
 </div>
 
 <!-- Create/Edit Appointment Modal -->
@@ -220,24 +220,32 @@
                 <div class="p-6 bg-white">
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">Select a Date & Time</h3>
                     
-                    <!-- Date Picker (Hidden input, shown as calendar) -->
-                    <input type="date" id="appointmentDate" required onchange="loadAvailableTimeSlots()"
-                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal mb-4">
-                    
-                    <!-- Hidden Time Select (for compatibility) -->
+                    <!-- Hidden inputs for form submission -->
+                    <input type="hidden" id="appointmentDate" required>
                     <input type="hidden" id="appointmentTime" required>
                     
-                    <!-- Loading Indicator -->
-                    <div id="timeLoading" class="hidden text-center py-8 text-gray-500">
+                    <!-- Loading Available Dates -->
+                    <div id="dateLoading" class="hidden text-center py-8 text-gray-500">
                         <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
-                        <p>Loading available times...</p>
+                        <p>Loading available dates...</p>
                     </div>
                     
-                    <!-- Time Slots Container -->
-                    <div id="timeSlotsContainer" class="space-y-2">
+                    <!-- Available Dates Display -->
+                    <div id="availableDatesContainer" class="mb-4">
                         <p class="text-sm text-gray-500 text-center py-8">
-                            Select a practitioner, duration, and date to see available times
+                            Select a practitioner and duration to see available dates
                         </p>
+                    </div>
+                    
+                    <!-- Loading Time Slots -->
+                    <div id="timeLoading" class="hidden text-center py-4 text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-xl mb-2"></i>
+                        <p class="text-sm">Loading available times...</p>
+                    </div>
+                    
+                    <!-- Time Slots Container (shown after selecting a date) -->
+                    <div id="timeSlotsContainer" class="hidden space-y-2">
+                        <!-- Time slots will be displayed here after selecting a date -->
                     </div>
                 </div>
             </div>
@@ -263,20 +271,25 @@
     </div>
 </div>
 
-<!-- FullCalendar CSS -->
-<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+<!-- FullCalendar CSS - COMMENTED OUT: Using custom views instead -->
+<!-- <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' /> -->
 
-<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<!-- FullCalendar JS - COMMENTED OUT: Using custom views instead -->
+<!-- <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script> -->
+<!-- FullCalendar Resource Timeline Plugin - COMMENTED OUT: Using custom views instead -->
+<!-- <script src='https://cdn.jsdelivr.net/npm/@fullcalendar/resource-timeline@6.1.10/index.global.min.js'></script> -->
 
 <script>
-let calendar;
+// let calendar; // COMMENTED OUT: No longer using FullCalendar
 let currentFilter = '';
 
-document.addEventListener('DOMContentLoaded', function() {
-    const calendarEl = document.getElementById('calendar');
-    
-    calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'dayGridMonth',
+// FullCalendar initialization - COMMENTED OUT: Using custom views instead
+/* FULL CALENDAR CODE DISABLED - Using custom calendar views
+// document.addEventListener('DOMContentLoaded', function() {
+//     const calendarEl = document.getElementById('calendar');
+//     
+//     calendar = new FullCalendar.Calendar(calendarEl, {
+//         initialView: 'dayGridMonth',
         firstDay: 1, // Start week on Monday (Australian standard)
         headerToolbar: {
             left: 'prev,next today',
@@ -290,6 +303,31 @@ document.addEventListener('DOMContentLoaded', function() {
         dayMaxEvents: true,
         weekends: true,
         height: 'auto',
+        
+        // Enable resources for practitioner columns in day/week views
+        schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source',
+        resources: async function(fetchInfo, successCallback, failureCallback) {
+            try {
+                const response = await fetch('/api/users/practitioners');
+                const data = await response.json();
+                
+                if (data.success && data.users) {
+                    const resources = data.users
+                        .filter(pract => activePractitioners.size === 0 || activePractitioners.has(pract.id.toString()))
+                        .map(pract => ({
+                            id: pract.id,
+                            title: pract.name,
+                            eventColor: pract.color || '#3788d8'
+                        }));
+                    successCallback(resources);
+                } else {
+                    successCallback([]);
+                }
+            } catch (error) {
+                console.error('Error loading practitioners for resources:', error);
+                successCallback([]);
+            }
+        },
         
         // Event sources - multiple sources for appointments and availability
         eventSources: [
@@ -313,12 +351,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Handle both array and object responses
                         const events = Array.isArray(data) ? data : (data && data.success ? data.events : []);
                         if (events && events.length > 0) {
-                            // Filter events based on active practitioners
-                            const filteredEvents = events.filter(event => {
+                            // Filter events based on active practitioners and ensure resourceId is set
+                            const filteredEvents = events
+                                .filter(event => {
                                 if (activePractitioners.size === 0) return true;
-                                const practId = event.extendedProps?.practitioner_id;
+                                    const practId = event.extendedProps?.practitioner_id || event.resourceId;
                                 return practId && activePractitioners.has(practId.toString());
-                            });
+                                })
+                                .map(event => ({
+                                    ...event,
+                                    resourceId: event.resourceId || event.extendedProps?.practitioner_id
+                                }));
                             console.log(`📅 FullCalendar: Loaded ${filteredEvents.length} filtered events`);
                             successCallback(filteredEvents);
                         } else {
@@ -360,12 +403,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     })
                     .then(data => {
                         if (data && data.success && data.blocks) {
-                            // Filter blocks by active practitioners
-                            const filteredBlocks = data.blocks.filter(block => {
+                            // Filter blocks by active practitioners and ensure resourceId is set
+                            const filteredBlocks = data.blocks
+                                .filter(block => {
                                 if (activePractitioners.size === 0) return true;
-                                const practId = block.extendedProps?.practitioner_id;
+                                    const practId = block.extendedProps?.practitioner_id || block.resourceId;
                                 return practId && activePractitioners.has(practId.toString());
-                            });
+                                })
+                                .map(block => ({
+                                    ...block,
+                                    resourceId: block.resourceId || block.extendedProps?.practitioner_id
+                                }));
                             successCallback(filteredBlocks);
                         } else {
                             console.warn('API returned non-success or missing blocks:', data?.error || data?.message || 'Unknown error');
@@ -402,11 +450,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     calendar.render();
 });
+END OF DISABLED FULLCALENDAR CODE */
 
 // Track which practitioners are currently active
 let activePractitioners = new Set();
 let currentView = 'month';
 let currentWeekStart = new Date();
+let currentDayStart = new Date();
 let blockMode = false;
 let selectedPractitionerForBlock = null;
 
@@ -481,8 +531,9 @@ function updatePeriodDisplay() {
     } else if (currentView === 'month') {
         const monthName = currentMonthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
         document.getElementById('currentPeriod').textContent = monthName;
-    } else {
-        // For day view, FullCalendar handles it
+    } else if (currentView === 'day') {
+        const dayName = currentDayStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        document.getElementById('currentPeriod').textContent = dayName;
     }
 }
 
@@ -496,6 +547,13 @@ function setMonthStart(date) {
     updatePeriodDisplay();
 }
 
+function setDayStart(date) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    currentDayStart = d;
+    updatePeriodDisplay();
+}
+
 function previousPeriod() {
     if (currentView === 'week') {
         currentWeekStart.setDate(currentWeekStart.getDate() - 7);
@@ -505,8 +563,12 @@ function previousPeriod() {
         currentMonthStart.setMonth(currentMonthStart.getMonth() - 1);
         updatePeriodDisplay();
         loadMonthGrid();
+    } else if (currentView === 'day') {
+        currentDayStart.setDate(currentDayStart.getDate() - 1);
+        updatePeriodDisplay();
+        loadDayGrid();
     } else {
-        if (calendar) calendar.prev();
+        // if (calendar) calendar.prev(); // No longer using FullCalendar
     }
 }
 
@@ -519,8 +581,10 @@ function nextPeriod() {
         currentMonthStart.setMonth(currentMonthStart.getMonth() + 1);
         updatePeriodDisplay();
         loadMonthGrid();
-    } else {
-        if (calendar) calendar.next();
+    } else if (currentView === 'day') {
+        currentDayStart.setDate(currentDayStart.getDate() + 1);
+        updatePeriodDisplay();
+        loadDayGrid();
     }
 }
 
@@ -531,8 +595,9 @@ function goToToday() {
     } else if (currentView === 'month') {
         setMonthStart(new Date());
         loadMonthGrid();
-    } else {
-        if (calendar) calendar.today();
+    } else if (currentView === 'day') {
+        setDayStart(new Date());
+        loadDayGrid();
     }
 }
 
@@ -567,8 +632,8 @@ function switchView(view) {
         document.getElementById('viewDay').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
         document.getElementById('weekGridView').classList.add('hidden');
         document.getElementById('monthGridView').classList.add('hidden');
-        document.getElementById('fullCalendarView').classList.remove('hidden');
-        calendar.changeView('timeGridDay');
+        document.getElementById('dayGridView').classList.remove('hidden');
+        loadDayGrid();
     }
 }
 
@@ -948,6 +1013,318 @@ async function loadWeekGrid() {
         console.log('✅ Week grid rendered successfully');
     } else {
         console.error('❌ weekGridContainer not found when trying to render!');
+    }
+    
+    // Initialize drag and drop after grid is loaded
+    initializeDragAndDrop();
+}
+
+async function loadDayGrid() {
+    const container = document.getElementById('dayGridContainer');
+    container.innerHTML = '<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-gray-400"></i><p class="text-gray-500 mt-2">Loading availability...</p></div>';
+    
+    // Get the current day
+    const dayDate = new Date(currentDayStart);
+    const dateStr = dayDate.toISOString().split('T')[0];
+    
+    // Generate time slots (8am to 6pm, 30-min intervals)
+    const timeSlots = [];
+    for (let hour = 8; hour < 18; hour++) {
+        for (let minute of [0, 30]) {
+            timeSlots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+        }
+    }
+    
+    // Load practitioner info and availability
+    const practitionerInfo = {}; // {id: {name, color}}
+    const availabilityData = {}; // {practitionerId: {timeStr: true}}
+    const appointmentsData = {}; // {practitionerId: [{appointment}]}
+    const blockedSlots = {}; // {practitionerId: [{start, end}]}
+    
+    // Load practitioner info first
+    try {
+        const practitionersResponse = await fetch('/api/users/practitioners');
+        const practitionersData = await practitionersResponse.json();
+        if (practitionersData.success && practitionersData.users) {
+            practitionersData.users.forEach(pract => {
+                // Show all practitioners if none selected, or only selected ones
+                if (activePractitioners.size === 0 || activePractitioners.has(pract.id.toString())) {
+                    practitionerInfo[pract.id] = {
+                        name: pract.name,
+                        color: pract.color || '#10b981'
+                    };
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error loading practitioners:', error);
+    }
+    
+    const practitionerIds = Object.keys(practitionerInfo).map(id => parseInt(id)).filter(id => !isNaN(id));
+    
+    if (practitionerIds.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-gray-500">No practitioners selected. Please select at least one practitioner from the filter above.</div>';
+        return;
+    }
+    
+    // Load appointments for this day
+    try {
+        const dayStart = new Date(dayDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayDate);
+        dayEnd.setHours(23, 59, 59, 999);
+        const dayStartStr = dayStart.toISOString().split('T')[0];
+        const dayEndStr = dayEnd.toISOString().split('T')[0];
+        
+        const eventsResponse = await fetch(`/api/calendar/events?start=${dayStartStr}&end=${dayEndStr}`);
+        if (!eventsResponse.ok) {
+            throw new Error(`HTTP ${eventsResponse.status}: ${eventsResponse.statusText}`);
+        }
+        const eventsData = await eventsResponse.json();
+        const events = Array.isArray(eventsData) ? eventsData : (eventsData.success ? eventsData.events : []);
+        
+        if (events && events.length > 0) {
+            console.log(`📅 Day view: Loaded ${events.length} appointments from API`);
+            events.forEach(event => {
+                const practId = event.extendedProps?.practitioner_id || event.resourceId;
+                if (practId && practitionerInfo[practId]) {
+                    const startDate = new Date(event.start);
+                    const timeStr = startDate.toTimeString().slice(0, 5);
+                    const endDate = new Date(event.end);
+                    const endTimeStr = endDate.toTimeString().slice(0, 5);
+                    
+                    if (!appointmentsData[practId]) appointmentsData[practId] = [];
+                    appointmentsData[practId].push({
+                        start: timeStr,
+                        end: endTimeStr,
+                        title: event.title,
+                        patientName: event.extendedProps?.patient_name || 'Unknown Patient',
+                        patientId: event.extendedProps?.patient_id || '',
+                        practitionerId: practId,
+                        practitionerName: practitionerInfo[practId].name,
+                        practitionerColor: practitionerInfo[practId].color,
+                        appointmentId: event.id || '',
+                        appointmentType: event.extendedProps?.appointment_type || 'Standard',
+                        duration: event.extendedProps?.duration || '30 min',
+                        notes: event.extendedProps?.notes || '',
+                        status: event.extendedProps?.status || 'booked',
+                        isNewPatient: event.extendedProps?.is_new_patient || false,
+                        isUrgent: event.extendedProps?.is_urgent || false,
+                        isTelehealth: event.extendedProps?.is_telehealth || false,
+                        isHomeVisit: event.extendedProps?.is_home_visit || false,
+                        isLongConsultation: event.extendedProps?.duration && parseInt(event.extendedProps.duration) > 30
+                    });
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error loading appointments:', error);
+    }
+    
+    // Load blocked slots (exceptions) for each practitioner
+    for (const practitionerId of practitionerIds) {
+        try {
+            const exceptionsResponse = await fetch(`/api/availability-exceptions?user_id=${practitionerId}`);
+            if (!exceptionsResponse.ok) {
+                console.warn(`Failed to load exceptions for practitioner ${practitionerId}: HTTP ${exceptionsResponse.status}`);
+                continue;
+            }
+            const exceptionsData = await exceptionsResponse.json();
+            if (exceptionsData.success && exceptionsData.exceptions) {
+                exceptionsData.exceptions.forEach(ex => {
+                    let exDateStr = ex.exception_date;
+                    if (exDateStr && exDateStr.includes('T')) {
+                        exDateStr = exDateStr.split('T')[0];
+                    }
+                    
+                    if (exDateStr === dateStr && !ex.is_all_day) {
+                        if (!blockedSlots[practitionerId]) blockedSlots[practitionerId] = [];
+                        blockedSlots[practitionerId].push({
+                            start: ex.start_time,
+                            end: ex.end_time
+                        });
+                    }
+                });
+            }
+        } catch (error) {
+            console.error(`Error loading exceptions for practitioner ${practitionerId}:`, error?.message || error);
+        }
+    }
+    
+    // Load availability using batch API
+    try {
+        const batchResponse = await fetch('/api/calendar/availability/batch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                practitioner_ids: practitionerIds,
+                dates: [dateStr],
+                duration: 30
+            })
+        });
+        
+        const batchData = await batchResponse.json();
+        if (batchData.success && batchData.availability) {
+            for (const [practId, datesData] of Object.entries(batchData.availability)) {
+                const practIdNum = parseInt(practId);
+                if (datesData[dateStr] && datesData[dateStr].available_slots) {
+                    availabilityData[practIdNum] = {};
+                    datesData[dateStr].available_slots.forEach(slot => {
+                        availabilityData[practIdNum][slot] = true;
+                    });
+                }
+            }
+            console.log(`✅ Batch loaded availability for day view`);
+        }
+    } catch (error) {
+        console.error('❌ Error loading batch availability:', error);
+    }
+    
+    // Build grid HTML - practitioners as columns
+    let html = '<div class="overflow-x-auto">';
+    html += '<table class="w-full border-collapse">';
+    
+    // Header row with practitioners
+    html += '<thead><tr>';
+    html += '<th class="sticky left-0 z-10 bg-white border-r-2 border-gray-300 p-3 text-left font-semibold text-gray-700 min-w-[120px]">Time</th>';
+    practitionerIds.forEach(practId => {
+        const pract = practitionerInfo[practId];
+        html += `<th class="border-r border-gray-200 p-3 text-center font-semibold text-gray-700 min-w-[180px]" style="background-color: ${pract.color}20;">
+            <div class="font-bold text-lg" style="color: ${pract.color};">${pract.name}</div>
+        </th>`;
+    });
+    html += '</tr></thead>';
+    
+    // Time slot rows
+    html += '<tbody>';
+    timeSlots.forEach(timeStr => {
+        const [hour, minute] = timeStr.split(':').map(Number);
+        const hour12 = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const displayTime = `${hour12}:${String(minute).padStart(2, '0')} ${ampm}`;
+        
+        html += '<tr>';
+        html += `<td class="sticky left-0 z-10 bg-gray-50 border-r-2 border-gray-300 p-2 text-sm font-medium text-gray-700">${displayTime}</td>`;
+        
+        practitionerIds.forEach(practId => {
+            const pract = practitionerInfo[practId];
+            const isAvailable = availabilityData[practId]?.[timeStr] || false;
+            
+            // Find appointment for this time slot and practitioner
+            const booking = appointmentsData[practId]?.find(apt => 
+                timeStr >= apt.start && timeStr < apt.end
+            );
+            const isBooked = !!booking;
+            
+            // Check if blocked
+            const isBlocked = blockedSlots[practId]?.some(block => 
+                timeStr >= block.start && timeStr < block.end
+            );
+            
+            let cellClass = 'border-r border-b border-gray-200 p-1 text-center transition-all relative ';
+            let cellContent = '';
+            let onClickAction = '';
+            
+            if (isBlocked) {
+                cellClass += 'bg-red-400 text-white hover:bg-red-500 cursor-pointer';
+                cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white"></i></div>';
+                onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}', ${practId})`;
+            } else if (isBooked) {
+                const patientName = booking.patientName || 'Unknown Patient';
+                const patientId = booking.patientId || '';
+                const appointmentId = booking.appointmentId || '';
+                const practitionerColor = getPractitionerColor(booking.practitionerName, booking.practitionerColor) || '#6A5ACD';
+                
+                const badgeHtml = createAppointmentBadge({
+                    practitionerName: booking.practitionerName,
+                    patientName: patientName,
+                    appointmentId: appointmentId,
+                    patientId: patientId,
+                    startTime: booking.start,
+                    endTime: booking.end,
+                    appointmentType: booking.appointmentType || 'Standard',
+                    duration: booking.duration || '30 min',
+                    notes: booking.notes || '',
+                    isNewPatient: booking.isNewPatient || false,
+                    isUrgent: booking.isUrgent || false,
+                    isTelehealth: booking.isTelehealth || false,
+                    isHomeVisit: booking.isHomeVisit || false,
+                    isLongConsultation: booking.isLongConsultation || false,
+                    isOverlapping: false,
+                    status: booking.status || 'booked',
+                    practitionerColor: practitionerColor
+                }, practitionerColor);
+                
+                cellClass += 'p-1 cursor-pointer';
+                cellContent = `<div class="flex items-center justify-center relative" 
+                    draggable="true"
+                    ondragstart="handleDragStart(event, '${dateStr}', '${timeStr}', '${appointmentId}')"
+                    ondragend="handleDragEnd(event)">
+                    ${badgeHtml}
+                </div>`;
+                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}', ${practId})` : `openAppointmentDrawer(${appointmentId})`;
+            } else if (isAvailable) {
+                if (blockMode) {
+                    cellClass += 'bg-green-500 text-white hover:bg-green-600 cursor-pointer ring-2 ring-yellow-400';
+                    cellContent = '<div class="w-full h-full min-h-[40px] flex items-center justify-center"><i class="fas fa-ban text-white opacity-50"></i></div>';
+                    onClickAction = `toggleBlockSlot('${dateStr}', '${timeStr}', ${practId})`;
+                } else {
+                    cellClass += 'available-slot p-1 cursor-pointer relative';
+                    cellContent = `<div class="w-full h-full min-h-[40px] flex items-center justify-center text-gray-400 text-xs" 
+                        onmouseenter="showAvailableSlotTooltip(event, '${dateStr}', '${timeStr}', [${practId}], '${pract.name}')"
+                        onmouseleave="hideTooltip()">
+                        <span class="text-green-500">🟢</span>
+                    </div>`;
+                    onClickAction = `selectTimeSlot('${dateStr}', '${timeStr}', ${practId})`;
+                }
+            } else {
+                cellClass += 'bg-gray-100 text-gray-400 cursor-not-allowed';
+                cellContent = '<div class="text-xs">—</div>';
+                onClickAction = '';
+            }
+            
+            const dataAttrs = `data-date="${dateStr}" 
+                data-time="${timeStr}"
+                data-practitioner-id="${practId}"
+                data-available="${isAvailable}"
+                data-booked="${isBooked}"
+                data-blocked="${isBlocked}"`;
+            
+            if (isAvailable && !isBooked) {
+                html += `<td class="${cellClass}" 
+                    onclick="event.stopPropagation(); (function() { ${onClickAction} })();"
+                    oncontextmenu="event.preventDefault(); rightClickCreateAppointment(event, '${dateStr}', '${timeStr}', [${practId}], '${pract.name}');"
+                    ${dataAttrs}>
+                    ${cellContent}
+                </td>`;
+            } else if (isBooked) {
+                html += `<td class="${cellClass}" 
+                    ${dataAttrs}
+                    data-appointment-id="${appointmentId}">
+                    ${cellContent}
+                </td>`;
+            } else {
+                const onclickAttr = onClickAction ? `onclick="${onClickAction}"` : '';
+                html += `<td class="${cellClass}" 
+                    ${onclickAttr}
+                    ${dataAttrs}>
+                    ${cellContent}
+                </td>`;
+            }
+        });
+        
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table></div>';
+    
+    if (container) {
+        container.innerHTML = html;
+        console.log('✅ Day grid rendered successfully');
+    } else {
+        console.error('❌ dayGridContainer not found when trying to render!');
     }
     
     // Initialize drag and drop after grid is loaded
@@ -1516,7 +1893,10 @@ function togglePractitioner(practitionerId) {
     
     // Refetch calendar events and availability blocks for all views
     if (calendar) {
-        calendar.refetchEvents();
+        // calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
     }
     
     // Reload current view with updated filters
@@ -1526,7 +1906,10 @@ function togglePractitioner(practitionerId) {
         loadMonthGrid();
     } else if (currentView === 'day') {
         // Day view uses FullCalendar, refetchEvents should handle it
-        if (calendar) calendar.refetchEvents();
+        // if (calendar) calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
     }
     
     console.log(`✅ Practitioner filter updated. Active practitioners: ${Array.from(activePractitioners).join(', ')}`);
@@ -1673,7 +2056,10 @@ document.getElementById('appointmentForm').addEventListener('submit', async func
         if (data.success) {
             showNotification('✅ Appointment saved successfully!', 'success');
             closeAppointmentModal();
-            if (calendar) calendar.refetchEvents();
+            // if (calendar) calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
             if (currentView === 'week') loadWeekGrid();
             if (currentView === 'month') loadMonthGrid();
         } else {
@@ -1735,12 +2121,18 @@ async function updateAppointmentTime(event) {
         
         if (!data.success) {
             alert('❌ Error: ' + data.error);
-            calendar.refetchEvents();
+            // calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
         }
     } catch (error) {
         console.error('Error updating appointment:', error);
         alert('❌ Error: ' + error.message);
-        calendar.refetchEvents();
+        // calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
     }
 }
 
@@ -1761,7 +2153,10 @@ async function deleteAppointment() {
         if (data.success) {
             alert('✅ Appointment deleted successfully!');
             closeAppointmentModal();
-            calendar.refetchEvents();
+            // calendar.refetchEvents(); // Reload current view instead
+        if (currentView === 'month') loadMonthGrid();
+        else if (currentView === 'week') loadWeekGrid();
+        else if (currentView === 'day') loadDayGrid();
         } else {
             alert('❌ Error: ' + data.error);
         }
@@ -1771,24 +2166,152 @@ async function deleteAppointment() {
     }
 }
 
-// Load available time slots for selected practitioner and date
+// Load available DATES first (improved UX)
 async function loadAvailableTimeSlots() {
     const practitionerId = document.getElementById('appointmentPractitioner').value;
-    const selectedDate = document.getElementById('appointmentDate').value;
+    const duration = parseInt(document.getElementById('appointmentDuration').value);
+    const dateLoading = document.getElementById('dateLoading');
+    const datesContainer = document.getElementById('availableDatesContainer');
+    const timeSlotsContainer = document.getElementById('timeSlotsContainer');
+    
+    // Reset state
+    datesContainer.innerHTML = '';
+    timeSlotsContainer.innerHTML = '';
+    timeSlotsContainer.classList.add('hidden');
+    document.getElementById('appointmentDate').value = '';
+    document.getElementById('appointmentTime').value = '';
+    
+    if (!practitionerId || !duration) {
+        datesContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Select a practitioner and duration to see available dates</p>';
+        return;
+    }
+    
+    if (practitionerId === 'any') {
+        datesContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Please select a specific practitioner to see available dates</p>';
+        return;
+    }
+    
+    // Show loading
+    dateLoading.classList.remove('hidden');
+    datesContainer.innerHTML = '';
+    
+    try {
+        // Get available dates for next 60 days
+        const today = new Date();
+        const endDate = new Date(today);
+        endDate.setDate(endDate.getDate() + 60);
+        
+        // Generate array of dates
+        const dates = [];
+        const currentDate = new Date(today);
+        while (currentDate <= endDate) {
+            dates.push(currentDate.toISOString().split('T')[0]);
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        // Fetch batch availability using POST
+        const response = await fetch('/api/calendar/availability/batch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                practitioner_ids: [parseInt(practitionerId)],
+                dates: dates,
+                duration: duration
+            })
+        });
+        const data = await response.json();
+        
+        dateLoading.classList.add('hidden');
+        
+        if (!data.success || !data.availability) {
+            datesContainer.innerHTML = '<p class="text-sm text-orange-600 text-center py-8">Error loading availability. Please try again.</p>';
+            console.error('Batch availability error:', data);
+            return;
+        }
+        
+        // Convert practitioner ID to string since JSON keys are strings
+        const practitionerIdStr = practitionerId.toString();
+        
+        if (!data.availability[practitionerIdStr]) {
+            datesContainer.innerHTML = '<p class="text-sm text-orange-600 text-center py-8">No availability found for this practitioner in the next 60 days</p>';
+            console.log('Available practitioner IDs:', Object.keys(data.availability));
+            return;
+        }
+        
+        const availability = data.availability[practitionerIdStr];
+        const availableDates = [];
+        
+        // Find dates with available slots
+        for (const dateStr in availability) {
+            const dayData = availability[dateStr];
+            if (dayData && dayData.available_slots && dayData.available_slots.length > 0) {
+                availableDates.push(dateStr);
+            }
+        }
+        
+        if (availableDates.length === 0) {
+            datesContainer.innerHTML = '<p class="text-sm text-orange-600 text-center py-8"><i class="fas fa-calendar-times mr-2"></i>No available time slots for this practitioner in the next 60 days. The practitioner may not have availability configured, or all slots are booked.</p>';
+            return;
+        }
+        
+        // Display available dates as clickable cards
+        datesContainer.innerHTML = '<p class="text-xs text-gray-600 mb-3 text-center font-semibold">Click a date to see available times:</p>';
+        
+        const datesGrid = document.createElement('div');
+        datesGrid.className = 'grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[400px] overflow-y-auto p-2';
+        
+        availableDates.slice(0, 30).forEach(dateStr => {
+            const date = new Date(dateStr + 'T12:00:00');
+            const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+            const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const slotsCount = availability[dateStr].available_slots.length;
+            
+            const dateCard = document.createElement('button');
+            dateCard.type = 'button';
+            dateCard.className = 'p-3 rounded-lg border-2 border-gray-300 hover:border-brand-bright-teal hover:bg-brand-bright-teal hover:bg-opacity-10 transition-all text-center';
+            dateCard.innerHTML = `
+                <div class="font-bold text-sm text-gray-800">${dayName}</div>
+                <div class="text-xs text-gray-600 mt-1">${monthDay}</div>
+                <div class="text-xs text-green-600 mt-1 font-semibold">${slotsCount} slots</div>
+            `;
+            dateCard.onclick = () => selectCalendarDateAndLoadTimes(dateStr);
+            
+            datesGrid.appendChild(dateCard);
+        });
+        
+        datesContainer.appendChild(datesGrid);
+        
+        if (availableDates.length > 30) {
+            const moreText = document.createElement('p');
+            moreText.className = 'text-xs text-gray-500 text-center mt-2';
+            moreText.textContent = `Showing first 30 available dates (${availableDates.length} total)`;
+            datesContainer.appendChild(moreText);
+        }
+        
+    } catch (error) {
+        console.error('Error loading available dates:', error);
+        dateLoading.classList.add('hidden');
+        datesContainer.innerHTML = '<p class="text-sm text-red-500 text-center py-8">Error loading available dates. Please try again.</p>';
+    }
+}
+
+// Load time slots for a specific selected date (calendar modal)
+async function selectCalendarDateAndLoadTimes(selectedDate) {
+    const practitionerId = document.getElementById('appointmentPractitioner').value;
     const duration = parseInt(document.getElementById('appointmentDuration').value);
     const timeInput = document.getElementById('appointmentTime');
     const timeLoading = document.getElementById('timeLoading');
     const timeSlotsContainer = document.getElementById('timeSlotsContainer');
     
-    // Clear existing time slots
-    timeSlotsContainer.innerHTML = '';
-    timeInput.value = '';
+    // Set the selected date
+    document.getElementById('appointmentDate').value = selectedDate;
     
-    // Check if practitioner and date are selected
-    if (!practitionerId || !selectedDate) {
-        timeSlotsContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Select a practitioner, duration, and date to see available times</p>';
-        return;
-    }
+    // Clear time selection
+    timeInput.value = '';
+    timeSlotsContainer.innerHTML = '';
+    timeSlotsContainer.classList.remove('hidden');
     
     // Show loading
     timeLoading.classList.remove('hidden');
@@ -1798,14 +2321,7 @@ async function loadAvailableTimeSlots() {
         let bookedSlots = [];
         let isBlocked = false;
         
-        if (practitionerId === 'any') {
-            // For "Any Practitioner", show message that they need to select a specific practitioner
-            timeSlotsContainer.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Please select a specific practitioner to see their available time slots</p>';
-            timeLoading.classList.add('hidden');
-            return;
-        }
-        
-        // Fetch ALL available time slots from API for the selected practitioner
+        // Fetch available time slots from API
         const response = await fetch(`/api/calendar/availability/${practitionerId}?date=${selectedDate}&duration=${duration}`);
         const data = await response.json();
         
@@ -1814,7 +2330,6 @@ async function loadAvailableTimeSlots() {
             bookedSlots = data.booked_slots || [];
             isBlocked = data.is_blocked || false;
             
-            // Log for debugging
             console.log(`📅 Loaded ${availableSlots.length} available time slots for practitioner ${practitionerId} on ${selectedDate}`);
         } else {
             timeSlotsContainer.innerHTML = '<p class="text-sm text-red-500 text-center py-8">Error loading availability: ' + (data.error || 'Unknown error') + '</p>';

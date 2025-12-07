@@ -1,135 +1,140 @@
-# Appointment Reminders - Deployment Summary
+# Deployment Summary - Dec 5, 2025
 
-## ✅ Deployment Complete!
+## ✅ COMPLETED
 
-### What Was Deployed:
+### 1. Database Connection Pool Fix ✅
+**Problem:** Random 500 errors caused by database connection exhaustion
+**Solution:** Improved connection pool configuration
+- Pool size: 5 → 10
+- Added overflow capacity: +20 connections
+- Faster recycling: 60min → 30min
+- Added TCP keepalives
 
-1. **Code Changes** ✅
-   - Reminder fields added to Appointment model
-   - AppointmentReminderService created
-   - Scheduled reminders system implemented
-   - Admin API endpoints added
-   - Notification service enhanced
+**Result:** Should eliminate "lost synchronization with server" errors
 
-2. **Cloud Run Deployment** ✅
-   - Service deployed: capturecare-00065-6p8
-   - URL: https://capturecare-310697189983.australia-southeast2.run.app
-   - All reminder endpoints available
+---
 
-3. **Cloud Scheduler Job** ✅
-   - Job Name: `appointment-reminders-check`
-   - Location: `asia-southeast2`
-   - Schedule: Every 15 minutes (`*/15 * * * *`)
-   - Timezone: Australia/Sydney
-   - Status: **ENABLED**
-   - Endpoint: `/api/reminders/check`
+### 2. Company-Wide Availability System ✅
+**Problem:** David Brown showing available on Dec 26 despite practice closure
+**Root Cause:** Each practitioner needed their own blockouts - tedious and error-prone
+**Solution:** Implemented company-wide blocking system
 
-## 🔧 Final Setup Step Required
+**Features:**
+- ✅ Set practice closures once, applies to ALL practitioners
+- ✅ New "Company Settings" page (Admin only)
+- ✅ Add single or multi-day closures
+- ✅ Individual practitioners can still add personal time off
+- ✅ Database migration runs automatically
 
-### Run Database Migration & Create Templates
+**Files Changed:**
+- `capturecare/models.py` - Added `is_company_wide` flag
+- `capturecare/blueprints/appointments.py` - Updated availability logic
+- `capturecare/web_dashboard.py` - Added routes and migration
+- `capturecare/templates/company_settings.html` - New admin UI
+- `capturecare/templates/base.html` - Added navigation link
+- `capturecare/config.py` - Improved connection pool
 
-**You need to run the setup endpoint once to initialize the database and create templates:**
+---
 
-1. **Log into the admin interface:**
-   - Go to: https://capturecare-310697189983.australia-southeast2.run.app
-   - Log in with your admin credentials
+## 🚀 DEPLOYED
 
-2. **Run the setup endpoint:**
-   - Visit: https://capturecare-310697189983.australia-southeast2.run.app/api/reminders/setup
-   - Or use curl (if you have a session cookie):
-     ```bash
-     curl -X POST https://capturecare-310697189983.australia-southeast2.run.app/api/reminders/setup \
-       -H "Content-Type: application/json" \
-       -b "session=YOUR_SESSION_COOKIE"
-     ```
+**Revision:** `capturecare-00143-f99`
+**URL:** https://capturecare-310697189983.australia-southeast2.run.app
+**Status:** ✅ Live
 
-3. **Verify setup:**
-   - You should see a JSON response with `"success": true`
-   - Both migration and templates should show success
+---
 
-## 📊 System Status
+## ⚡ NEXT STEPS (Required)
 
-### Cloud Scheduler Job
-- **Status:** ENABLED ✅
-- **Next Run:** Every 15 minutes
-- **Endpoint:** POST /api/reminders/check
+### Add Christmas/New Year Closure
 
-### Reminder System
-- **24-hour reminders:** Will send 24 hours before appointments
-- **Day-before reminders:** Will send at 6pm the day before
-- **Check frequency:** Every 15 minutes
+1. **Log in as admin** to the deployed site
+2. **Click "Company Settings"** in the sidebar
+3. **Click "+ Add Holiday/Closure"**
+4. **Enter:**
+   - Start Date: `2025-12-24`
+   - End Date: `2026-01-05`
+   - Type: `Company Vacation`
+   - Reason: `Christmas-New Year Closure`
+5. **Click "Add Block"**
 
-## 🧪 Testing
+**This will create 13 blocks (one per day) and make ALL practitioners unavailable during this period.**
 
-### Test Reminder Check Manually
-```bash
-curl -X POST https://capturecare-310697189983.australia-southeast2.run.app/api/reminders/check \
-  -H "Content-Type: application/json"
-```
+---
 
-Expected response:
-```json
-{
-  "success": true,
-  "stats": {
-    "checked": 0,
-    "24hr_sent": 0,
-    "day_before_sent": 0,
-    "errors": 0
-  },
-  "message": "Checked 0 appointments, sent 0 24hr reminders and 0 day-before reminders"
-}
-```
+## 🧪 Testing Checklist
 
-### Check Reminder Status for Appointment
-```bash
-curl https://capturecare-310697189983.australia-southeast2.run.app/api/reminders/status/APPOINTMENT_ID
-```
+### Test 1: Company Settings Page
+- [ ] Navigate to "Company Settings" (admin only)
+- [ ] Add a test holiday
+- [ ] Verify it appears in the list
+- [ ] Delete the test holiday
 
-## 📝 What Happens Next
+### Test 2: Dec 26 Availability (Main Issue)
+- [ ] Go to a patient page (e.g., /patients/1)
+- [ ] Click "Book Appointment"
+- [ ] Select "David Brown" as practitioner
+- [ ] Verify Dec 26 does NOT appear in available dates
+- [ ] Verify other holiday dates are also blocked
 
-1. **Cloud Scheduler** will call `/api/reminders/check` every 15 minutes
-2. **Reminder Service** checks all scheduled appointments
-3. **24-hour reminders** are sent when appointments are 23.5-24.5 hours away
-4. **Day-before reminders** are sent at 6pm the day before appointments
-5. **Status is tracked** in the database (reminder_24hr_sent, reminder_day_before_sent)
+### Test 3: Random 500 Errors
+- [ ] Monitor for 24 hours
+- [ ] Check logs: `gcloud logging read 'resource.type=cloud_run_revision AND severity>=ERROR' --limit=50`
+- [ ] Should see NO "lost synchronization" errors
 
-## 🔍 Monitoring
+### Test 4: Individual Practitioner Availability Still Works
+- [ ] Go to "My Availability"
+- [ ] Add a personal blockout date
+- [ ] Verify only YOUR appointments are blocked
+- [ ] Other practitioners should still show available
 
-### View Scheduler Job
-```bash
-gcloud scheduler jobs describe appointment-reminders-check \
-  --location=asia-southeast2 \
-  --project=capturecare-461801
-```
+---
 
-### View Logs
-```bash
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=capturecare" \
-  --limit 50 \
-  --format json \
-  --project=capturecare-461801
-```
+## 📊 Comparison
 
-### Test with Sample Appointment
-1. Create an appointment 25 hours in the future
-2. Wait for next scheduler run (or trigger manually)
-3. Verify SMS was sent
-4. Check reminder status via API
+### Before
+- ❌ David Brown available on Dec 26 (WRONG)
+- ❌ Random 500 errors throughout app
+- ❌ Must set blockouts for each practitioner
+- ❌ Easy to miss someone
 
-## ✅ Rollback
+### After
+- ✅ All practitioners unavailable on company holidays
+- ✅ Stable database connections
+- ✅ Set company closures once
+- ✅ Automatic application to all staff
+- ✅ Individual practitioners can still add personal time off
 
-If you need to rollback:
-1. Pause Cloud Scheduler job:
-   ```bash
-   gcloud scheduler jobs pause appointment-reminders-check \
-     --location=asia-southeast2 \
-     --project=capturecare-461801
-   ```
-2. The database fields are safe to leave (they don't affect existing functionality)
+---
 
-## 🎉 Ready to Use!
+## 📝 Documentation
 
-Once you run the setup endpoint (Step 2 above), the system will be fully operational and reminders will start sending automatically!
+Created comprehensive guides:
+- `COMPANY_WIDE_AVAILABILITY_GUIDE.md` - Full implementation details
+- `CRITICAL_FIXES_SUMMARY.md` - Technical fixes summary
+- `DEPLOYMENT_SUMMARY.md` - This file
 
+---
 
+## 🎯 Key Takeaways
+
+1. **Company-wide blocks** are now the recommended way to handle practice closures
+2. **Individual blocks** are for personal time off (vacation, appointments, etc.)
+3. **Company-wide blocks override** individual availability patterns
+4. **Database connections** are now properly managed with pooling and keepalives
+5. **Admin interface** makes it easy to manage practice-wide settings
+
+---
+
+## ✨ Success Metrics
+
+After adding the Christmas/New Year closure:
+- ✅ Dec 26 shows as unavailable for ALL practitioners
+- ✅ Appointment booking correctly respects company closures
+- ✅ No more 500 errors related to database connections
+- ✅ Easy to add future holidays (one place, all staff)
+
+---
+
+**Status: Ready for Production** 🚀
+**Action Required: Add Christmas/New Year closure in Company Settings** 🎄

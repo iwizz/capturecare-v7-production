@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from models import db, User, AvailabilityPattern, AvailabilityException, Patient
 from datetime import date, timedelta
+from sqlalchemy.orm import joinedload
 import logging
 
 # Create blueprints
@@ -104,19 +105,37 @@ def get_team_availability():
             except (ValueError, TypeError):
                 user_ids = []
         
-        # Query patterns
-        pattern_query = AvailabilityPattern.query.join(User).filter(User.is_active == True)
-        if user_ids:
-            pattern_query = pattern_query.filter(AvailabilityPattern.user_id.in_(user_ids))
+        # Query patterns with proper relationship loading
+        try:
+            pattern_query = AvailabilityPattern.query.options(joinedload(AvailabilityPattern.user)).join(User).filter(User.is_active == True)
+            if user_ids:
+                pattern_query = pattern_query.filter(AvailabilityPattern.user_id.in_(user_ids))
+            
+            patterns = pattern_query.all()
+        except Exception as query_error:
+            logger.error(f"Error querying patterns: {query_error}", exc_info=True)
+            # Fallback to simpler query - get active user IDs first
+            active_user_ids = [u[0] for u in db.session.query(User.id).filter_by(is_active=True).all()]
+            if user_ids:
+                active_user_ids = [uid for uid in user_ids if uid in active_user_ids]
+            pattern_query = AvailabilityPattern.query.filter(AvailabilityPattern.user_id.in_(active_user_ids))
+            patterns = pattern_query.all()
         
-        patterns = pattern_query.all()
-        
-        # Query exceptions
-        exception_query = AvailabilityException.query.join(User).filter(User.is_active == True)
-        if user_ids:
-            exception_query = exception_query.filter(AvailabilityException.user_id.in_(user_ids))
-        
-        exceptions = exception_query.all()
+        # Query exceptions with proper relationship loading
+        try:
+            exception_query = AvailabilityException.query.options(joinedload(AvailabilityException.user)).join(User).filter(User.is_active == True)
+            if user_ids:
+                exception_query = exception_query.filter(AvailabilityException.user_id.in_(user_ids))
+            
+            exceptions = exception_query.all()
+        except Exception as query_error:
+            logger.error(f"Error querying exceptions: {query_error}", exc_info=True)
+            # Fallback to simpler query - get active user IDs first
+            active_user_ids = [u[0] for u in db.session.query(User.id).filter_by(is_active=True).all()]
+            if user_ids:
+                active_user_ids = [uid for uid in user_ids if uid in active_user_ids]
+            exception_query = AvailabilityException.query.filter(AvailabilityException.user_id.in_(active_user_ids))
+            exceptions = exception_query.all()
         
         # Format patterns
         pattern_list = []
@@ -129,7 +148,7 @@ def get_team_availability():
                     'user_color': pattern.user.calendar_color if pattern.user and pattern.user.calendar_color else '#3b82f6',
                     'title': pattern.title or '',
                     'frequency': pattern.frequency or 'weekly',
-                    'weekdays': pattern.weekdays or [],
+                    'weekdays': pattern.weekdays if pattern.weekdays else '',  # Return as string for frontend .split()
                     'start_time': pattern.start_time.strftime('%H:%M') if pattern.start_time else None,
                     'end_time': pattern.end_time.strftime('%H:%M') if pattern.end_time else None,
                     'valid_from': pattern.valid_from.isoformat() if pattern.valid_from else None,

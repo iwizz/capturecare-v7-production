@@ -4937,8 +4937,14 @@ def company_settings():
         is_company_wide=True
     ).order_by(AvailabilityException.exception_date.asc()).all()
     
+    # Get company office hours
+    office_hours = AvailabilityPattern.query.filter_by(
+        is_company_wide=True
+    ).order_by(AvailabilityPattern.start_time.asc()).all()
+    
     return render_template('company_settings.html', 
-                         company_blocks=company_blocks)
+                         company_blocks=company_blocks,
+                         office_hours=office_hours)
 
 @app.route('/api/company-settings/blocks', methods=['POST'])
 @login_required
@@ -5030,6 +5036,116 @@ def delete_company_block(block_id):
         logger.error(f"Error deleting company block: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# Company Office Hours Routes
+@app.route('/api/company-settings/office-hours', methods=['POST'])
+@login_required
+def add_company_office_hours():
+    """Add company-wide office hours pattern"""
+    # Only admins can access
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin privileges required'}), 403
+    
+    try:
+        data = request.get_json()
+        title = data.get('title', 'Office Hours')
+        start_time_str = data.get('start_time')
+        end_time_str = data.get('end_time')
+        weekdays = data.get('weekdays')  # e.g., "0,1,2,3,4" for Mon-Fri
+        notes = data.get('notes', '')
+        
+        if not start_time_str or not end_time_str:
+            return jsonify({'success': False, 'error': 'Start and end times are required'}), 400
+        
+        # Parse times
+        from datetime import datetime
+        start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        end_time = datetime.strptime(end_time_str, '%H:%M').time()
+        
+        # Create office hours pattern
+        pattern = AvailabilityPattern(
+            user_id=None,  # NULL for company-wide
+            is_company_wide=True,
+            title=title,
+            frequency='weekly',
+            weekdays=weekdays,
+            start_time=start_time,
+            end_time=end_time,
+            is_active=True,
+            notes=notes
+        )
+        
+        db.session.add(pattern)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Office hours added successfully',
+            'pattern_id': pattern.id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error adding office hours: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/company-settings/office-hours/<int:pattern_id>', methods=['DELETE'])
+@login_required
+def delete_company_office_hours(pattern_id):
+    """Delete company office hours pattern"""
+    # Only admins can access
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin privileges required'}), 403
+    
+    try:
+        pattern = AvailabilityPattern.query.get_or_404(pattern_id)
+        
+        # Verify it's a company-wide pattern
+        if not pattern.is_company_wide:
+            return jsonify({'success': False, 'error': 'Not a company-wide pattern'}), 400
+        
+        db.session.delete(pattern)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Office hours deleted successfully'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting office hours: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/company-settings/office-hours/<int:pattern_id>/toggle', methods=['POST'])
+@login_required
+def toggle_company_office_hours(pattern_id):
+    """Toggle active/inactive status of office hours pattern"""
+    # Only admins can access
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin privileges required'}), 403
+    
+    try:
+        pattern = AvailabilityPattern.query.get_or_404(pattern_id)
+        
+        # Verify it's a company-wide pattern
+        if not pattern.is_company_wide:
+            return jsonify({'success': False, 'error': 'Not a company-wide pattern'}), 400
+        
+        # Toggle active status
+        pattern.is_active = not pattern.is_active
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Office hours {"activated" if pattern.is_active else "deactivated"} successfully',
+            'is_active': pattern.is_active
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error toggling office hours: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/debug/availability-blocks')
 @login_required
 def debug_availability_blocks():
@@ -5111,7 +5227,22 @@ def run_startup_migrations():
                 # Create index for faster company-wide lookups
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availability_exceptions_company_wide ON availability_exceptions(is_company_wide, exception_date);"))
                 conn.commit()
-            logger.info("✅ Migration complete: is_company_wide column added")
+            logger.info("✅ Migration complete: is_company_wide column added to availability_exceptions")
+        
+        # Check if is_company_wide column exists in availability_patterns table
+        patterns_columns = [col['name'] for col in inspector.get_columns('availability_patterns')]
+        
+        if 'is_company_wide' not in patterns_columns:
+            logger.info("⚙️  Adding is_company_wide column to availability_patterns table...")
+            with db.engine.connect() as conn:
+                # Add the column with default False
+                conn.execute(text("ALTER TABLE availability_patterns ADD COLUMN is_company_wide BOOLEAN DEFAULT FALSE NOT NULL;"))
+                # Make user_id nullable for company-wide patterns
+                conn.execute(text("ALTER TABLE availability_patterns ALTER COLUMN user_id DROP NOT NULL;"))
+                # Create index for faster company-wide lookups
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availability_patterns_company_wide ON availability_patterns(is_company_wide, is_active);"))
+                conn.commit()
+            logger.info("✅ Migration complete: is_company_wide column added to availability_patterns")
         
         logger.info("✅ Database schema is up to date")
             

@@ -10,6 +10,7 @@ class Patient(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     clinician_id = db.Column(db.Integer, nullable=True)
+    allocated_practitioner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Primary/default practitioner
     withings_user_id = db.Column(db.String(100), unique=True, nullable=True)
     cliniko_patient_id = db.Column(db.String(100), unique=True, nullable=True)
     
@@ -60,6 +61,9 @@ class Patient(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to allocated practitioner (lazy to avoid circular loading)
+    allocated_practitioner = db.relationship('User', foreign_keys=[allocated_practitioner_id], lazy='select')
     
     health_data = db.relationship('HealthData', backref='patient', lazy=True, cascade='all, delete-orphan')
     devices = db.relationship('Device', backref='patient', lazy=True, cascade='all, delete-orphan')
@@ -198,6 +202,7 @@ class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False)
     practitioner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Assigned practitioner
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # User who created the appointment
     
     title = db.Column(db.String(200), nullable=False)
     appointment_type = db.Column(db.String(100), nullable=True)
@@ -269,6 +274,24 @@ class Appointment(db.Model):
                 'is_long_consultation': is_long_consultation
             }
         }
+    
+    def to_dict(self):
+        """Convert appointment to dictionary format"""
+        return {
+            'id': self.id,
+            'patient_id': self.patient_id,
+            'practitioner_id': self.practitioner_id,
+            'title': self.title,
+            'appointment_type': self.appointment_type,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'duration_minutes': self.duration_minutes,
+            'location': self.location,
+            'notes': self.notes,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
 class PatientNote(db.Model):
     __tablename__ = 'patient_notes'
@@ -331,9 +354,12 @@ class AvailabilityPattern(db.Model):
     __tablename__ = 'availability_patterns'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # NULL for company-wide patterns
     
-    title = db.Column(db.String(100), nullable=False)  # e.g., "Morning Shift", "Lunch Break"
+    # Company-wide office hours (applies to entire practice)
+    is_company_wide = db.Column(db.Boolean, default=False, nullable=False)
+    
+    title = db.Column(db.String(100), nullable=False)  # e.g., "Morning Shift", "Lunch Break", "Office Hours"
     
     # Frequency options: daily, weekly, weekdays, custom
     frequency = db.Column(db.String(20), nullable=False, default='weekly')  # daily, weekly, weekdays, custom
@@ -359,23 +385,27 @@ class AvailabilityPattern(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationship to User
+    # Relationship to User (nullable for company-wide patterns)
     user = db.relationship('User', backref='availability_patterns', lazy=True)
     
     def __repr__(self):
-        return f'<AvailabilityPattern {self.id}: {self.title} ({self.frequency})>'
+        scope = "Company-wide" if self.is_company_wide else f"User {self.user_id}"
+        return f'<AvailabilityPattern {self.id}: {scope} - {self.title} ({self.frequency})>'
 
 class AvailabilityException(db.Model):
     __tablename__ = 'availability_exceptions'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # NULL for company-wide blocks
     
     # Specific date to block or override
     exception_date = db.Column(db.Date, nullable=False)
     
     # Type: holiday, vacation, blocked, custom_hours
     exception_type = db.Column(db.String(20), nullable=False, default='blocked')
+    
+    # Company-wide block (practice closed, applies to ALL practitioners)
+    is_company_wide = db.Column(db.Boolean, default=False, nullable=False)
     
     # Is this a full day block or partial?
     is_all_day = db.Column(db.Boolean, default=True)
@@ -390,11 +420,12 @@ class AvailabilityException(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationship to User
+    # Relationship to User (nullable for company-wide blocks)
     user = db.relationship('User', backref='availability_exceptions', lazy=True)
     
     def __repr__(self):
-        return f'<AvailabilityException {self.id}: {self.exception_date} - {self.reason}>'
+        scope = "Company-wide" if self.is_company_wide else f"User {self.user_id}"
+        return f'<AvailabilityException {self.id}: {scope} - {self.exception_date} - {self.reason}>'
 
 class Invoice(db.Model):
     __tablename__ = 'invoices'

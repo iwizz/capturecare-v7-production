@@ -114,15 +114,24 @@ class Config:
     
     # Connection pool settings - only for PostgreSQL, not SQLite
     if db_url and 'postgresql' in db_url:
-        # Connection pool settings for Cloud SQL (PostgreSQL)
+        # AGGRESSIVE connection pool settings to prevent corruption
         SQLALCHEMY_ENGINE_OPTIONS = {
-            'pool_size': 5,
-            'pool_recycle': 3600,
-            'pool_pre_ping': True,  # Verify connections before using
+            'pool_size': 5,  # Keep small to force recycling
+            'max_overflow': 10,  # Limit total connections
+            'pool_timeout': 10,  # Fail fast if no connections available
+            'pool_recycle': 300,  # AGGRESSIVE: Recycle every 5 minutes
+            'pool_pre_ping': True,  # CRITICAL: Always test connections before use
+            'pool_reset_on_return': 'rollback',  # Always rollback on return
             'connect_args': {
-                'connect_timeout': 10,
-                'options': '-c statement_timeout=30000'
-            }
+                'connect_timeout': 5,  # Fast timeout
+                'options': '-c statement_timeout=10000',  # 10 second query timeout
+                'keepalives': 1,
+                'keepalives_idle': 10,  # More aggressive keepalives
+                'keepalives_interval': 5,
+                'keepalives_count': 3
+            },
+            # Force pool to dispose of connections on error
+            'pool_use_lifo': True  # Use LIFO to keep connections warm
         }
     else:
         # SQLite doesn't support connect_timeout or pool settings

@@ -113,6 +113,11 @@ async function loadAvailability() {
 function displayAvailability(slots) {
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     
+    // Handle null/undefined slots
+    if (!slots || !Array.isArray(slots)) {
+        slots = [];
+    }
+    
     // Group slots by day
     const slotsByDay = {};
     dayNames.forEach((_, index) => {
@@ -120,15 +125,18 @@ function displayAvailability(slots) {
     });
     
     slots.forEach(slot => {
-        if (slot.day_of_week !== null) {
-            slotsByDay[slot.day_of_week].push(slot);
+        if (slot && slot.day_of_week !== null && slot.day_of_week !== undefined) {
+            const dayIndex = parseInt(slot.day_of_week);
+            if (dayIndex >= 0 && dayIndex < 7) {
+                slotsByDay[dayIndex].push(slot);
+            }
         }
     });
     
     // Build HTML with Tailwind classes
     let html = '';
     dayNames.forEach((dayName, index) => {
-        const daySlots = slotsByDay[index];
+        const daySlots = slotsByDay[index] || [];
         html += `
             <div class="mb-6">
                 <h5 class="text-lg font-semibold text-blue-700 mb-3 pb-2 border-b-2 border-gray-200">

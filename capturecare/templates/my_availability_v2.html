@@ -6,9 +6,45 @@
 <div class="max-w-7xl mx-auto p-6">
     <div class="flex justify-between items-center mb-6">
         <h2 class="text-3xl font-bold text-gray-800">
-            <i class="fas fa-calendar-check text-blue-600"></i> My Availability
+            <i class="fas fa-calendar-check text-blue-600"></i> 
+            {% if is_admin and target_user.id != current_user.id %}
+                {{ target_user.full_name }}'s Availability
+            {% else %}
+                My Availability
+            {% endif %}
         </h2>
     </div>
+
+    <!-- Admin: Practitioner Selector -->
+    {% if is_admin and all_practitioners %}
+    <div class="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg shadow-md p-4 mb-6">
+        <div class="flex items-center gap-4">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center">
+                    <i class="fas fa-user-md text-white text-xl"></i>
+                </div>
+            </div>
+            <div class="flex-1">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-users-cog text-purple-600"></i> Admin: Manage Availability For
+                </label>
+                <select id="practitionerSelector" onchange="switchPractitioner()" 
+                        class="w-full px-4 py-2 border-2 border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white text-gray-900 font-medium">
+                    {% for practitioner in all_practitioners %}
+                    <option value="{{ practitioner.id }}" {% if practitioner.id == target_user.id %}selected{% endif %}>
+                        {{ practitioner.full_name }}{% if practitioner.role %} - {{ practitioner.role }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex-shrink-0">
+                <div class="text-xs text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
+                    <i class="fas fa-crown"></i> Admin Mode
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -284,6 +320,20 @@
 let availabilityCalendar;
 let selectedUsers = new Set();
 
+// Admin: Get current managing user ID
+function getManagedUserId() {
+    const selector = document.getElementById('practitionerSelector');
+    return selector ? parseInt(selector.value) : null;
+}
+
+// Admin: Switch practitioner
+function switchPractitioner() {
+    const userId = getManagedUserId();
+    if (userId) {
+        window.location.href = `/my-availability?user_id=${userId}`;
+    }
+}
+
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadPatterns();
@@ -364,7 +414,11 @@ function updateDaySelector() {
 
 async function loadPatterns() {
     try {
-        const response = await fetch('/api/availability-patterns');
+        // Admin: Include user_id if managing another practitioner
+        const managedUserId = getManagedUserId();
+        const url = managedUserId ? `/api/availability-patterns?user_id=${managedUserId}` : '/api/availability-patterns';
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         if (data.success) {
@@ -495,6 +549,12 @@ async function savePattern(event) {
         is_active: isActive
     };
     
+    // Admin: Include user_id if managing another practitioner
+    const managedUserId = getManagedUserId();
+    if (managedUserId) {
+        payload.user_id = managedUserId;
+    }
+    
     try {
         // Determine if we're creating or updating
         const isEdit = patternId !== '';
@@ -621,7 +681,11 @@ function toggleExceptionTimes() {
 
 async function loadExceptions() {
     try {
-        const response = await fetch('/api/availability-exceptions');
+        // Admin: Include user_id if managing another practitioner
+        const managedUserId = getManagedUserId();
+        const url = managedUserId ? `/api/availability-exceptions?user_id=${managedUserId}` : '/api/availability-exceptions';
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         if (data.success) {
@@ -716,6 +780,12 @@ async function saveException(event) {
         reason: reason || null,
         is_range: isRange
     };
+    
+    // Admin: Include user_id if managing another practitioner
+    const managedUserId = getManagedUserId();
+    if (managedUserId) {
+        payload.user_id = managedUserId;
+    }
     
     if (isRange) {
         payload.from_date = document.getElementById('exceptionFromDate').value;
@@ -962,7 +1032,12 @@ async function loadTeamAvailability(info, successCallback, failureCallback) {
 
 function convertPatternsToEvents(patterns, exceptions, holidays, startDate, endDate) {
     const events = [];
-    const exceptionDates = new Set(exceptions.map(ex => ex.date));
+    // Handle both 'date' and 'exception_date' field names from API
+    // Extract date part if it includes time
+    const exceptionDates = new Set(exceptions.map(ex => {
+        const dateStr = ex.date || ex.exception_date || ex.exceptionDate || '';
+        return dateStr.split('T')[0]; // Get just the date part (YYYY-MM-DD)
+    }).filter(d => d)); // Remove empty strings
     const availableDates = new Set();
     
     // Helper function to get local date string (YYYY-MM-DD) in AEST without UTC conversion
