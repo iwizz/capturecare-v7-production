@@ -153,6 +153,8 @@ def patient_detail(patient_id):
 @login_required
 def communications():
     """Central communications page"""
-    return render_template('communications.html')
+    # Check if user is a practitioner
+    is_practitioner = not current_user.is_admin and current_user.role in ['practitioner', 'nurse']
+    return render_template('communications.html', is_practitioner=is_practitioner)
 
 

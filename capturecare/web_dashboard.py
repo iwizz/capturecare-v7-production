@@ -4,7 +4,7 @@ from flask_cors import CORS
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 from sqlalchemy import or_
-from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth
+from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth, OnboardingChecklist
 from config import Config
 from withings_auth import WithingsAuthManager
 from sync_health_data import HealthDataSynchronizer
@@ -697,6 +697,18 @@ def patient_detail(patient_id):
     # Get public base URL for video room links
     base_url = app.config.get('BASE_URL', '') or os.getenv('BASE_URL', '') or os.getenv('PUBLIC_URL', '')
     
+    # Get or create onboarding checklist for this patient
+    onboarding_checklist = OnboardingChecklist.query.filter_by(patient_id=patient_id).first()
+    if not onboarding_checklist:
+        onboarding_checklist = OnboardingChecklist(patient_id=patient_id)
+        db.session.add(onboarding_checklist)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error creating onboarding checklist: {e}")
+            onboarding_checklist = None
+    
     return render_template('patient_detail.html', 
                          patient=patient, 
                          patient_age=patient_age,
@@ -709,8 +721,78 @@ def patient_detail(patient_id):
                          target_ranges=target_ranges_dict,
                          practitioners=practitioners,
                          base_url=base_url,
+                         onboarding_checklist=onboarding_checklist,
                          today=datetime.now().strftime('%Y-%m-%d'))
 
+
+# ============================================================================
+# ONBOARDING CHECKLIST API
+# ============================================================================
+
+@app.route('/api/patients/<int:patient_id>/onboarding-checklist', methods=['GET'])
+@optional_login_required
+def get_onboarding_checklist(patient_id):
+    """Get onboarding checklist for a patient"""
+    patient = Patient.query.get_or_404(patient_id)
+    
+    checklist = OnboardingChecklist.query.filter_by(patient_id=patient_id).first()
+    if not checklist:
+        # Create new checklist if it doesn't exist
+        checklist = OnboardingChecklist(patient_id=patient_id)
+        db.session.add(checklist)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Failed to create checklist: {str(e)}'}), 500
+    
+    return jsonify(checklist.to_dict())
+
+@app.route('/api/patients/<int:patient_id>/onboarding-checklist', methods=['PUT'])
+@optional_login_required
+def update_onboarding_checklist(patient_id):
+    """Update onboarding checklist items"""
+    patient = Patient.query.get_or_404(patient_id)
+    
+    checklist = OnboardingChecklist.query.filter_by(patient_id=patient_id).first()
+    if not checklist:
+        checklist = OnboardingChecklist(patient_id=patient_id)
+        db.session.add(checklist)
+    
+    data = request.get_json()
+    
+    # Mark as started if not already
+    if not checklist.started_at:
+        checklist.started_at = datetime.utcnow()
+    
+    # Update checklist items from request
+    if 'items' in data:
+        for section_key, section_items in data['items'].items():
+            for item_key, item_value in section_items.items():
+                if hasattr(checklist, item_key):
+                    setattr(checklist, item_key, item_value)
+    
+    # Update notes if provided
+    if 'notes' in data:
+        checklist.notes = data['notes']
+    
+    # Update completed_by
+    if current_user.is_authenticated:
+        checklist.completed_by_id = current_user.id
+    
+    # Check if checklist is complete and mark completion time
+    if checklist.is_complete() and not checklist.completed_at:
+        checklist.completed_at = datetime.utcnow()
+    elif not checklist.is_complete() and checklist.completed_at:
+        # If unchecking items, remove completed_at
+        checklist.completed_at = None
+    
+    try:
+        db.session.commit()
+        return jsonify(checklist.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update checklist: {str(e)}'}), 500
 
 @app.route('/api/patients/<int:patient_id>/target-ranges', methods=['GET'])
 @optional_login_required
@@ -3212,11 +3294,35 @@ def get_all_correspondence():
         direction = request.args.get('direction')  # 'inbound' or 'outbound'
         workflow_status = request.args.get('workflow_status')  # 'pending', 'completed', etc.
         patient_search = request.args.get('patient_search', '')
+        patient_filter = request.args.get('patient_filter', 'my_patients')  # 'my_patients' or 'all'
         limit = int(request.args.get('limit', 100))
         offset = int(request.args.get('offset', 0))
         
         # Build query
         query = PatientCorrespondence.query.filter_by(is_deleted=False)
+        
+        # Check if user is a practitioner and filter by their patients by default
+        is_practitioner = current_user.is_authenticated and not current_user.is_admin and current_user.role in ['practitioner', 'nurse']
+        
+        # Apply practitioner patient filter
+        if is_practitioner and patient_filter == 'my_patients':
+            # Get patient IDs who have appointments with this practitioner
+            patient_ids = db.session.query(Appointment.patient_id).filter(
+                Appointment.practitioner_id == current_user.id
+            ).distinct().all()
+            patient_ids = [pid[0] for pid in patient_ids]
+            
+            if patient_ids:
+                query = query.filter(PatientCorrespondence.patient_id.in_(patient_ids))
+            else:
+                # No patients, return empty result
+                return jsonify({
+                    'success': True,
+                    'correspondence': [],
+                    'total': 0,
+                    'limit': limit,
+                    'offset': offset
+                })
         
         # Apply filters
         if channel:

@@ -392,6 +392,9 @@ def create_appointment():
         
         # Sync to Google Calendar if configured
         calendar_sync = get_calendar_sync()
+        patient = Patient.query.get(patient_id)
+        patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
+        
         if calendar_sync and practitioner_id:
             try:
                 practitioner = User.query.get(practitioner_id)
@@ -399,8 +402,6 @@ def create_appointment():
                 # Future: Support individual practitioner calendars
                 
                 # Format description
-                patient = Patient.query.get(patient_id)
-                patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
                 description = f"Patient: {patient_name}\nType: {appointment_type}\nNotes: {notes or 'None'}"
                 
                 event_id = calendar_sync.create_event(
@@ -419,6 +420,70 @@ def create_appointment():
                 logger.error(f"Failed to sync to Google Calendar: {e}")
                 # Don't fail the request, just log error
         
+        # Automatically send SMS notification and log to correspondence
+        notification_result = {'sms': False, 'email': False}
+        if patient:
+            try:
+                from notification_service import NotificationService
+                notification_service = NotificationService()
+                
+                # Prepare template variables
+                start_time_formatted = appointment.start_time.strftime('%d/%m/%Y at %I:%M %p')
+                practitioner_name = User.query.get(practitioner_id).full_name if practitioner_id else 'Your practitioner'
+                
+                # Send SMS if mobile or phone available
+                if patient.mobile or patient.phone:
+                    try:
+                        # Get custom SMS template if exists
+                        from models import NotificationTemplate
+                        sms_template = NotificationTemplate.query.filter_by(
+                            template_type='sms',
+                            template_name='appointment_confirmation',
+                            is_active=True
+                        ).first()
+                        
+                        if sms_template and sms_template.message:
+                            # Substitute template variables
+                            sms_message = sms_template.message.format(
+                                patient_name=patient.first_name,
+                                first_name=patient.first_name,
+                                last_name=patient.last_name,
+                                date=appointment.start_time.strftime('%d/%m/%Y'),
+                                time=appointment.start_time.strftime('%I:%M %p'),
+                                date_time=start_time_formatted,
+                                date_time_short=start_time_formatted,
+                                practitioner=practitioner_name,
+                                location=appointment.location or 'TBD',
+                                appointment_type=appointment.appointment_type or 'Appointment',
+                                duration=f"{appointment.duration_minutes} minutes"
+                            )
+                        else:
+                            # Default SMS message
+                            sms_message = f"Hi {patient.first_name}, your appointment has been confirmed for {start_time_formatted}. Location: {appointment.location or 'TBD'}. See you soon!"
+                        
+                        # Send SMS and log to correspondence
+                        sms_result = notification_service.send_sms(
+                            to_phone=patient.mobile or patient.phone,
+                            message=sms_message,
+                            patient_id=patient.id,
+                            user_id=current_user.id,
+                            log_correspondence=True
+                        )
+                        
+                        if sms_result.get('success'):
+                            notification_result['sms'] = True
+                            logger.info(f"✅ Sent appointment confirmation SMS for appointment {appointment.id}")
+                        else:
+                            logger.warning(f"Failed to send SMS for appointment {appointment.id}: {sms_result.get('error')}")
+                    except Exception as sms_error:
+                        logger.error(f"Error sending SMS for appointment {appointment.id}: {sms_error}")
+                else:
+                    logger.info(f"No phone number available for patient {patient.id}, skipping SMS")
+                    
+            except Exception as notif_error:
+                logger.error(f"Error sending appointment notification: {notif_error}")
+                # Don't fail the appointment creation if notification fails
+        
         return jsonify({
             'success': True,
             'appointment': {
@@ -426,7 +491,8 @@ def create_appointment():
                 'title': appointment.title,
                 'start': appointment.start_time.isoformat(),
                 'end': appointment.end_time.isoformat()
-            }
+            },
+            'notification_sent': notification_result
         })
     except Exception as e:
         logger.error(f"Error creating appointment: {e}")

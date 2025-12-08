@@ -646,3 +646,168 @@ class PatientAuth(db.Model):
     def check_password(self, password):
         """Check if provided password matches hash"""
         return check_password_hash(self.password_hash, password)
+
+
+class OnboardingChecklist(db.Model):
+    """Tracks patient onboarding checklist completion"""
+    __tablename__ = 'onboarding_checklists'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False, unique=True)
+    completed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Nurse who completed it
+    
+    # Section 1: Introductions & Background
+    intro_nurse = db.Column(db.Boolean, default=False)
+    intro_name = db.Column(db.Boolean, default=False)
+    intro_enrollment_reason = db.Column(db.Boolean, default=False)
+    intro_device_experience = db.Column(db.Boolean, default=False)
+    intro_session_explanation = db.Column(db.Boolean, default=False)
+    intro_enrollment_details = db.Column(db.Boolean, default=False)
+    
+    # Section 2: Introduce the CaptureCare PRPM Program
+    program_explained = db.Column(db.Boolean, default=False)
+    sessions_booked = db.Column(db.Boolean, default=False)
+    
+    # Section 3: Device & App Setup Confirmation
+    device_charging = db.Column(db.Boolean, default=False)
+    app_downloaded = db.Column(db.Boolean, default=False)
+    devices_paired = db.Column(db.Boolean, default=False)
+    troubleshooting = db.Column(db.Boolean, default=False)
+    
+    # Section 4: App Navigation & Features
+    nav_dashboard = db.Column(db.Boolean, default=False)
+    nav_timeline = db.Column(db.Boolean, default=False)
+    nav_devices = db.Column(db.Boolean, default=False)
+    premium_explained = db.Column(db.Boolean, default=False)
+    health_goal_set = db.Column(db.Boolean, default=False)
+    help_center_shown = db.Column(db.Boolean, default=False)
+    
+    # Section 5: Downloading & Sharing Data
+    export_csv = db.Column(db.Boolean, default=False)
+    generate_report = db.Column(db.Boolean, default=False)
+    invite_family = db.Column(db.Boolean, default=False)
+    
+    # Section 6: Explain Key Health Metrics
+    metrics_body_comp = db.Column(db.Boolean, default=False)
+    metrics_heart = db.Column(db.Boolean, default=False)
+    metrics_nerve = db.Column(db.Boolean, default=False)
+    metrics_sleep = db.Column(db.Boolean, default=False)
+    
+    # Section 7: Goal Setting & Medical History
+    smart_goals = db.Column(db.Boolean, default=False)
+    medical_history = db.Column(db.Boolean, default=False)
+    health_concerns = db.Column(db.Boolean, default=False)
+    
+    # Section 8: Final Admin
+    pre_trial_survey = db.Column(db.Boolean, default=False)
+    patient_confident = db.Column(db.Boolean, default=False)
+    questions_answered = db.Column(db.Boolean, default=False)
+    next_session_confirmed = db.Column(db.Boolean, default=False)
+    
+    # Metadata
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Notes field for any additional comments
+    notes = db.Column(db.Text, nullable=True)
+    
+    # Relationships
+    patient = db.relationship('Patient', backref=db.backref('onboarding_checklist', uselist=False), lazy='select')
+    completed_by = db.relationship('User', foreign_keys=[completed_by_id], lazy='select')
+    
+    def __repr__(self):
+        return f'<OnboardingChecklist Patient {self.patient_id}>'
+    
+    def get_completion_percentage(self):
+        """Calculate completion percentage"""
+        total_fields = 39  # Total number of checklist boolean fields
+        completed_fields = sum([
+            # Section 1
+            self.intro_nurse, self.intro_name, self.intro_enrollment_reason,
+            self.intro_device_experience, self.intro_session_explanation, self.intro_enrollment_details,
+            # Section 2
+            self.program_explained, self.sessions_booked,
+            # Section 3
+            self.device_charging, self.app_downloaded, self.devices_paired, self.troubleshooting,
+            # Section 4
+            self.nav_dashboard, self.nav_timeline, self.nav_devices,
+            self.premium_explained, self.health_goal_set, self.help_center_shown,
+            # Section 5
+            self.export_csv, self.generate_report, self.invite_family,
+            # Section 6
+            self.metrics_body_comp, self.metrics_heart, self.metrics_nerve, self.metrics_sleep,
+            # Section 7
+            self.smart_goals, self.medical_history, self.health_concerns,
+            # Section 8
+            self.pre_trial_survey, self.patient_confident, self.questions_answered, self.next_session_confirmed
+        ])
+        return int((completed_fields / total_fields) * 100)
+    
+    def is_complete(self):
+        """Check if checklist is 100% complete"""
+        return self.get_completion_percentage() == 100
+    
+    def to_dict(self):
+        """Convert checklist to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'patient_id': self.patient_id,
+            'completion_percentage': self.get_completion_percentage(),
+            'is_complete': self.is_complete(),
+            'completed_by': self.completed_by.full_name if self.completed_by else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'items': {
+                'section1': {
+                    'intro_nurse': self.intro_nurse,
+                    'intro_name': self.intro_name,
+                    'intro_enrollment_reason': self.intro_enrollment_reason,
+                    'intro_device_experience': self.intro_device_experience,
+                    'intro_session_explanation': self.intro_session_explanation,
+                    'intro_enrollment_details': self.intro_enrollment_details,
+                },
+                'section2': {
+                    'program_explained': self.program_explained,
+                    'sessions_booked': self.sessions_booked,
+                },
+                'section3': {
+                    'device_charging': self.device_charging,
+                    'app_downloaded': self.app_downloaded,
+                    'devices_paired': self.devices_paired,
+                    'troubleshooting': self.troubleshooting,
+                },
+                'section4': {
+                    'nav_dashboard': self.nav_dashboard,
+                    'nav_timeline': self.nav_timeline,
+                    'nav_devices': self.nav_devices,
+                    'premium_explained': self.premium_explained,
+                    'health_goal_set': self.health_goal_set,
+                    'help_center_shown': self.help_center_shown,
+                },
+                'section5': {
+                    'export_csv': self.export_csv,
+                    'generate_report': self.generate_report,
+                    'invite_family': self.invite_family,
+                },
+                'section6': {
+                    'metrics_body_comp': self.metrics_body_comp,
+                    'metrics_heart': self.metrics_heart,
+                    'metrics_nerve': self.metrics_nerve,
+                    'metrics_sleep': self.metrics_sleep,
+                },
+                'section7': {
+                    'smart_goals': self.smart_goals,
+                    'medical_history': self.medical_history,
+                    'health_concerns': self.health_concerns,
+                },
+                'section8': {
+                    'pre_trial_survey': self.pre_trial_survey,
+                    'patient_confident': self.patient_confident,
+                    'questions_answered': self.questions_answered,
+                    'next_session_confirmed': self.next_session_confirmed,
+                }
+            },
+            'notes': self.notes
+        }
