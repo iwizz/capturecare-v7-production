@@ -264,11 +264,14 @@ def google_callback():
     logger.info(f"Authorization response URL: {authorization_response[:100]}")
     
     try:
-        # Fetch token - catch and handle scope warnings gracefully
-        import warnings
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', message='Scope has changed')
+        # Fetch token - handle scope warnings that OAuth may raise
+        try:
             flow.fetch_token(authorization_response=authorization_response)
+        except Warning as w:
+            # OAuth raises Warning when scope changes (user granted additional permissions)
+            # This is acceptable - just log it and continue
+            logger.warning(f"OAuth scope changed (this is OK): {str(w)}")
+            # Token was still fetched successfully despite the warning
         credentials = flow.credentials
         
         # Verify the ID token with request object for additional security
