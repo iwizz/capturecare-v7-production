@@ -3921,17 +3921,17 @@ def api_generate_report(patient_id):
 @app.route('/api/patients/<int:patient_id>/send_report', methods=['POST'])
 @optional_login_required
 def api_send_report(patient_id):
-    """Send edited health report with optional attachments via email and save to patient notes"""
+    """Save clinical note/report to correspondence with optional email to patient, GP, or custom recipient"""
     patient = Patient.query.get_or_404(patient_id)
-    
-    if not email_sender:
-        return jsonify({'success': False, 'error': 'Email not configured. Please add SMTP settings.'}), 400
     
     try:
         # Get form data
         report_html = request.form.get('report_html')
         report_subject = request.form.get('subject', f"Health Report for {patient.first_name} {patient.last_name}")
         report_type = request.form.get('report_type', 'ai_report')
+        recipient_type = request.form.get('recipient_type', '')  # '', 'patient', 'gp', 'custom'
+        recipient_email = request.form.get('recipient_email', '')
+        recipient_name = request.form.get('recipient_name', '')
         
         if not report_html:
             return jsonify({'success': False, 'error': 'Report content is required'}), 400
@@ -3947,38 +3947,80 @@ def api_send_report(patient_id):
                         'content': file.read()
                     })
         
-        # Send email
-        email_result = email_sender.send_health_report(
-            to_email=patient.email,
-            patient_name=f"{patient.first_name} {patient.last_name}",
-            report_content=report_html,
+        email_sent = False
+        email_recipient = None
+        
+        # Send email if recipient specified
+        if recipient_type and recipient_email:
+            if not email_sender:
+                return jsonify({'success': False, 'error': 'Email not configured. Please add SMTP settings in Settings page.'}), 400
+            
+            # Determine recipient for logging
+            if recipient_type == 'patient':
+                email_recipient = f"{patient.first_name} {patient.last_name} (Patient)"
+            elif recipient_type == 'gp':
+                email_recipient = f"{recipient_name} (GP)" if recipient_name else "GP"
+            elif recipient_type == 'custom':
+                email_recipient = recipient_email
+            
+            # Send email
+            email_result = email_sender.send_health_report(
+                to_email=recipient_email,
+                patient_name=f"{patient.first_name} {patient.last_name}",
+                report_content=report_html,
+                subject=report_subject,
+                attachments=attachments if attachments else None
+            )
+            
+            if not email_result:
+                logger.error(f"❌ Email sending failed for patient {patient_id} to {recipient_email}")
+                return jsonify({'success': False, 'error': f'Failed to send email to {recipient_email}. Check server logs for details.'}), 400
+            
+            email_sent = True
+            logger.info(f"✅ Sent health report email to {recipient_email} for patient {patient_id}")
+        
+        # Save to patient correspondence (always save)
+        from models import PatientCorrespondence
+        correspondence = PatientCorrespondence(
+            patient_id=patient_id,
+            user_id=current_user.id if current_user.is_authenticated else None,
+            channel='email' if email_sent else 'note',
+            direction='outbound',
             subject=report_subject,
-            attachments=attachments if attachments else None
+            body=report_html,
+            recipient_email=recipient_email if recipient_email else None,
+            status='sent' if email_sent else 'saved',
+            sent_at=datetime.utcnow()
         )
+        db.session.add(correspondence)
         
-        if not email_result:
-            logger.error(f"❌ Email sending failed for patient {patient_id}")
-            return jsonify({'success': False, 'error': 'Failed to send email. Check server logs for details.'}), 400
-        
-        # Save to patient notes
+        # Also save to patient notes for historical record
         note = PatientNote(
             patient_id=patient_id,
             note_text=report_html,
             note_type=report_type,
-            author='AI System'
+            author=current_user.full_name if current_user.is_authenticated else 'System'
         )
         db.session.add(note)
         db.session.commit()
         
+        # Build success message
         attachment_info = f" with {len(attachments)} attachment(s)" if attachments else ""
+        
+        if email_sent:
+            message = f'Clinical note sent to {email_recipient}{attachment_info} and saved to Correspondence'
+        else:
+            message = f'Clinical note saved to Correspondence (no email sent)'
         
         return jsonify({
             'success': True,
-            'message': f'Report sent to {patient.email}{attachment_info} and saved to patient notes',
-            'note_id': note.id
+            'message': message,
+            'note_id': note.id,
+            'correspondence_id': correspondence.id,
+            'email_sent': email_sent
         })
     except Exception as e:
-        logger.error(f"Error sending report: {e}")
+        logger.error(f"Error saving/sending report: {e}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 400
 

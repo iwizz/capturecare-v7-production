@@ -6285,21 +6285,83 @@ function updateAttachmentsList() {
     `).join('');
 }
 
+function updateRecipientField() {
+    const recipientType = document.getElementById('reportRecipientType').value;
+    const customEmailContainer = document.getElementById('customEmailContainer');
+    const gpEmailContainer = document.getElementById('gpEmailContainer');
+    const btnText = document.getElementById('sendReportBtnText');
+    
+    // Hide all optional fields first
+    customEmailContainer.classList.add('hidden');
+    gpEmailContainer.classList.add('hidden');
+    
+    // Update button text and show appropriate field
+    if (recipientType === '') {
+        btnText.innerHTML = '<i class="fas fa-save mr-1"></i>Save to Correspondence';
+    } else if (recipientType === 'patient') {
+        btnText.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Send to Patient & Save';
+    } else if (recipientType === 'gp') {
+        btnText.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Send to GP & Save';
+        gpEmailContainer.classList.remove('hidden');
+    } else if (recipientType === 'custom') {
+        btnText.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Send Email & Save';
+        customEmailContainer.classList.remove('hidden');
+    }
+}
+
 async function sendReport() {
     if (!reportEditor) {
         alert('Report editor not initialized');
         return;
     }
     
+    const recipientType = document.getElementById('reportRecipientType').value;
+    
+    // Validate email if sending
+    if (recipientType === 'custom') {
+        const customEmail = document.getElementById('reportCustomEmail').value.trim();
+        if (!customEmail) {
+            alert('Please enter an email address');
+            return;
+        }
+        if (!customEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+            alert('Please enter a valid email address');
+            return;
+        }
+    } else if (recipientType === 'gp') {
+        const gpEmail = document.getElementById('reportGpEmail').value.trim();
+        if (!gpEmail) {
+            alert('Please enter the GP\'s email address');
+            return;
+        }
+        if (!gpEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+            alert('Please enter a valid email address');
+            return;
+        }
+    }
+    
     const sendBtn = document.getElementById('sendReportBtn');
+    const originalBtnText = sendBtn.innerHTML;
     sendBtn.disabled = true;
-    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Processing...';
     
     try {
         const formData = new FormData();
         formData.append('report_html', reportEditor.root.innerHTML);
         formData.append('subject', document.getElementById('reportSubject').value);
         formData.append('report_type', currentReportType === 'clinical' ? 'SOAP' : 'ai_report');
+        formData.append('recipient_type', recipientType);
+        
+        // Add recipient email if applicable
+        if (recipientType === 'custom') {
+            formData.append('recipient_email', document.getElementById('reportCustomEmail').value.trim());
+        } else if (recipientType === 'gp') {
+            formData.append('recipient_email', document.getElementById('reportGpEmail').value.trim());
+            formData.append('recipient_name', '{{ patient.gp_name|default("GP", true) }}');
+        } else if (recipientType === 'patient') {
+            formData.append('recipient_email', '{{ patient.email }}');
+            formData.append('recipient_name', '{{ patient.first_name }} {{ patient.last_name }}');
+        }
         
         // Add file attachments
         attachedFiles.forEach(file => {
@@ -6316,7 +6378,7 @@ async function sendReport() {
         if (data.success) {
             alert('✅ ' + data.message);
             closeReportEditor();
-            // Reload notes section
+            // Reload page to show updated correspondence
             location.reload();
         } else {
             alert('❌ Error: ' + data.error);
@@ -6326,7 +6388,7 @@ async function sendReport() {
         alert('❌ Error sending report: ' + error.message);
     } finally {
         sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Send Email & Save to Notes';
+        sendBtn.innerHTML = originalBtnText;
     }
 }
 
@@ -6822,6 +6884,57 @@ function resetVideoGeneration() {
                 </div>
             </div>
             
+            <!-- Email Recipient Section -->
+            <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <label class="block text-sm font-semibold text-gray-700 mb-3">
+                    <i class="fas fa-user-md mr-2"></i>Send Email To (Optional)
+                </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Recipient Type -->
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-2">Recipient</label>
+                        <select id="reportRecipientType" onchange="updateRecipientField()" 
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal text-sm">
+                            <option value="">None - Save to Correspondence Only</option>
+                            <option value="patient">Patient ({{ patient.email }})</option>
+                            <option value="gp">Patient's GP</option>
+                            <option value="custom">Other (Custom Email)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Custom Email Field (shown when custom is selected) -->
+                    <div id="customEmailContainer" class="hidden">
+                        <label class="block text-xs font-medium text-gray-600 mb-2">Email Address</label>
+                        <input type="email" id="reportCustomEmail" 
+                               placeholder="doctor@example.com"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal text-sm">
+                    </div>
+                    
+                    <!-- GP Email (shown when GP is selected) -->
+                    <div id="gpEmailContainer" class="hidden">
+                        <label class="block text-xs font-medium text-gray-600 mb-2">GP Email</label>
+                        {% if patient.gp_name %}
+                        <div class="p-2 bg-white rounded border border-gray-300 text-sm">
+                            <p class="font-medium">{{ patient.gp_name }}</p>
+                            <input type="email" id="reportGpEmail" 
+                                   placeholder="Enter GP email address"
+                                   class="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                        </div>
+                        {% else %}
+                        <div class="p-2 bg-yellow-50 rounded border border-yellow-300 text-sm">
+                            <p class="text-yellow-800"><i class="fas fa-exclamation-triangle mr-1"></i>No GP recorded</p>
+                            <input type="email" id="reportGpEmail" 
+                                   placeholder="Enter GP email address"
+                                   class="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 mt-2">
+                    <i class="fas fa-info-circle mr-1"></i>Leave as "None" to save to Correspondence without sending an email. Select a recipient to send via email.
+                </p>
+            </div>
+            
             <!-- Action Buttons -->
             <div class="flex justify-between items-center pt-4 border-t border-gray-200">
                 <button type="button" onclick="previewReport()" 
@@ -6835,7 +6948,7 @@ function resetVideoGeneration() {
                     </button>
                     <button type="button" id="sendReportBtn" onclick="sendReport()" 
                             class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
-                        <i class="fas fa-paper-plane mr-2"></i>Send Email & Save to Notes
+                        <i class="fas fa-save mr-2"></i><span id="sendReportBtnText">Save to Correspondence</span>
                     </button>
                 </div>
             </div>
