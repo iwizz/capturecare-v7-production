@@ -3,6 +3,177 @@
 {% block title %}Dashboard - CaptureCare{% endblock %}
 
 {% block content %}
+
+{% if is_practitioner %}
+<!-- Practitioner Dashboard -->
+<h1 class="text-4xl font-bold mb-8 text-gray-800">
+    <i class="fas fa-user-md text-brand-bright-teal mr-3"></i>
+    My Dashboard
+</h1>
+
+<!-- Upcoming Appointments Section -->
+<div class="bg-white rounded-lg shadow-md p-8 mb-8">
+    <h2 class="text-2xl font-bold mb-6 text-gray-800">
+        <i class="fas fa-calendar-check text-brand-bright-teal mr-2"></i>
+        My Upcoming Appointments
+    </h2>
+    
+    {% if upcoming_appointments %}
+        <div class="space-y-4">
+            {% for appointment in upcoming_appointments %}
+                <div class="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-teal-50 rounded-lg border-l-4 border-brand-bright-teal hover:shadow-md transition">
+                    <div class="flex items-center space-x-4 flex-1">
+                        <div class="bg-brand-bright-teal text-white rounded-full w-16 h-16 flex flex-col items-center justify-center">
+                            <span class="text-xs font-semibold">{{ appointment.start_time.strftime('%b') }}</span>
+                            <span class="text-2xl font-bold">{{ appointment.start_time.strftime('%d') }}</span>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3 mb-1">
+                                <h3 class="text-lg font-bold text-gray-800">{{ appointment.patient.first_name }} {{ appointment.patient.last_name }}</h3>
+                                {% if appointment.appointment_type %}
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
+                                        {{ appointment.appointment_type }}
+                                    </span>
+                                {% endif %}
+                            </div>
+                            <p class="text-gray-600 font-medium">{{ appointment.title }}</p>
+                            <div class="flex items-center space-x-4 mt-2 text-sm text-gray-500">
+                                <span><i class="far fa-clock mr-1"></i>{{ appointment.start_time.strftime('%I:%M %p') }} - {{ appointment.end_time.strftime('%I:%M %p') }}</span>
+                                {% if appointment.location %}
+                                    <span><i class="fas fa-map-marker-alt mr-1"></i>{{ appointment.location }}</span>
+                                {% endif %}
+                                <span><i class="fas fa-hourglass-half mr-1"></i>{{ appointment.duration_minutes }} min</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <a href="{{ url_for('patients.patient_detail', patient_id=appointment.patient.id) }}" 
+                           class="bg-brand-bright-teal text-white px-4 py-2 rounded-lg hover:bg-brand-teal transition inline-flex items-center">
+                            <i class="fas fa-user mr-2"></i> View Patient
+                        </a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="text-center py-12">
+            <i class="fas fa-calendar-times text-gray-300 text-6xl mb-4"></i>
+            <p class="text-gray-600 text-lg">No upcoming appointments</p>
+            <p class="text-gray-500 text-sm mt-2">Your schedule is clear!</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- My Patients Section -->
+<div class="bg-white rounded-lg shadow-md p-8">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-800">
+            <i class="fas fa-users text-brand-bright-teal mr-2"></i>
+            My Patients
+        </h2>
+        <div class="relative w-96">
+            <input type="text" id="patientSearch" placeholder="Search patients by name..." 
+                   class="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-brand-bright-teal">
+            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+        </div>
+    </div>
+    
+    {% if patients_with_appointments %}
+        <div id="patientsList" class="space-y-3 max-h-[600px] overflow-y-auto">
+            {% for item in patients_with_appointments %}
+                {% set patient = item.patient %}
+                {% set last_appt = item.last_appointment %}
+                {% set next_appt = item.next_appointment %}
+                
+                <div class="patient-item p-5 bg-gray-50 rounded-lg hover:bg-gray-100 transition border border-gray-200" 
+                     data-name="{{ patient.first_name }} {{ patient.last_name }}">
+                    <div class="flex items-center justify-between">
+                        <!-- Patient Info -->
+                        <div class="flex items-center space-x-4 flex-1">
+                            <div class="bg-gradient-to-br from-brand-bright-teal to-brand-teal text-white rounded-full w-14 h-14 flex items-center justify-center font-bold text-lg shadow-md">
+                                {{ patient.first_name[0] }}{{ patient.last_name[0] }}
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <p class="font-bold text-gray-800 text-lg">{{ patient.first_name }} {{ patient.last_name }}</p>
+                                    {% if patient.withings_user_id %}
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                                            <i class="fas fa-link"></i> Connected
+                                        </span>
+                                    {% endif %}
+                                </div>
+                                <p class="text-sm text-gray-600 mb-2">{{ patient.email }}</p>
+                                
+                                <!-- Appointment History -->
+                                <div class="flex items-center space-x-6 text-sm">
+                                    {% if last_appt %}
+                                        <div class="flex items-center text-gray-600">
+                                            <i class="fas fa-history mr-2 text-gray-400"></i>
+                                            <span class="font-medium">Last Visit:</span>
+                                            <span class="ml-1">{{ last_appt.start_time.strftime('%b %d, %Y') }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="flex items-center text-gray-400">
+                                            <i class="fas fa-history mr-2"></i>
+                                            <span>No previous visits</span>
+                                        </div>
+                                    {% endif %}
+                                    
+                                    {% if next_appt %}
+                                        <div class="flex items-center text-brand-bright-teal font-medium">
+                                            <i class="fas fa-calendar-day mr-2"></i>
+                                            <span class="font-medium">Next:</span>
+                                            <span class="ml-1">{{ next_appt.start_time.strftime('%b %d, %Y at %I:%M %p') }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="flex items-center text-gray-400">
+                                            <i class="fas fa-calendar-day mr-2"></i>
+                                            <span>No upcoming appointments</span>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="ml-4">
+                            <a href="{{ url_for('patients.patient_detail', patient_id=patient.id) }}" 
+                               class="bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition inline-flex items-center shadow-sm hover:shadow-md">
+                                <i class="fas fa-eye mr-2"></i> View Patient
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="text-center py-12">
+            <i class="fas fa-user-slash text-gray-300 text-6xl mb-4"></i>
+            <p class="text-gray-600 text-lg">No patients assigned yet</p>
+            <p class="text-gray-500 text-sm mt-2">Patients will appear here once you have appointments with them.</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('patientSearch').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const patientItems = document.querySelectorAll('.patient-item');
+    
+    patientItems.forEach(item => {
+        const name = item.getAttribute('data-name').toLowerCase();
+        
+        if (name.includes(searchTerm)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+</script>
+
+{% else %}
+<!-- Admin Dashboard (Original) -->
 <h1 class="text-4xl font-bold mb-8 text-gray-800">
     <i class="fas fa-chart-line text-brand-bright-teal mr-3"></i>
     System Dashboard
@@ -149,4 +320,6 @@ document.getElementById('patientSearch').addEventListener('input', function(e) {
         </a>
     </div>
 </div>
+{% endif %}
+
 {% endblock %}

@@ -4041,23 +4041,81 @@ def get_heygen_status(video_id):
 @app.route('/dashboard')
 @optional_login_required
 def dashboard():
-    total_patients = Patient.query.count()
-    connected_patients = Patient.query.filter(Patient.withings_user_id.isnot(None)).count()
+    # Check if user is a practitioner (non-admin role)
+    is_practitioner = current_user.is_authenticated and not current_user.is_admin and current_user.role in ['practitioner', 'nurse']
     
-    recent_data = HealthData.query.filter(
-        HealthData.timestamp >= datetime.now() - timedelta(days=1)
-    ).count()
-    
-    stats = {
-        'total_patients': total_patients,
-        'connected_patients': connected_patients,
-        'recent_measurements': recent_data,
-        'total_devices': Device.query.count()
-    }
-    
-    all_patients = Patient.query.order_by(Patient.first_name, Patient.last_name).all()
-    
-    return render_template('dashboard.html', stats=stats, all_patients=all_patients)
+    if is_practitioner:
+        # Practitioner Dashboard
+        now = datetime.now()
+        
+        # Get upcoming appointments for this practitioner
+        upcoming_appointments = Appointment.query.filter(
+            Appointment.practitioner_id == current_user.id,
+            Appointment.start_time >= now,
+            Appointment.status != 'cancelled'
+        ).order_by(Appointment.start_time.asc()).limit(10).all()
+        
+        # Get all patients who have appointments with this practitioner
+        # Using a subquery to get unique patient IDs
+        patient_ids = db.session.query(Appointment.patient_id).filter(
+            Appointment.practitioner_id == current_user.id
+        ).distinct().all()
+        patient_ids = [pid[0] for pid in patient_ids]
+        
+        patients = Patient.query.filter(Patient.id.in_(patient_ids)).order_by(
+            Patient.first_name, Patient.last_name
+        ).all() if patient_ids else []
+        
+        # For each patient, get their last and next appointment with this practitioner
+        patients_with_appointments = []
+        for patient in patients:
+            # Last appointment (completed or in the past)
+            last_appt = Appointment.query.filter(
+                Appointment.patient_id == patient.id,
+                Appointment.practitioner_id == current_user.id,
+                Appointment.start_time < now
+            ).order_by(Appointment.start_time.desc()).first()
+            
+            # Next appointment (future)
+            next_appt = Appointment.query.filter(
+                Appointment.patient_id == patient.id,
+                Appointment.practitioner_id == current_user.id,
+                Appointment.start_time >= now,
+                Appointment.status != 'cancelled'
+            ).order_by(Appointment.start_time.asc()).first()
+            
+            patients_with_appointments.append({
+                'patient': patient,
+                'last_appointment': last_appt,
+                'next_appointment': next_appt
+            })
+        
+        return render_template('dashboard.html', 
+                             is_practitioner=True,
+                             upcoming_appointments=upcoming_appointments,
+                             patients_with_appointments=patients_with_appointments)
+    else:
+        # Admin Dashboard (original)
+        total_patients = Patient.query.count()
+        connected_patients = Patient.query.filter(Patient.withings_user_id.isnot(None)).count()
+        
+        recent_data = HealthData.query.filter(
+            HealthData.timestamp >= datetime.now() - timedelta(days=1)
+        ).count()
+        
+        stats = {
+            'total_patients': total_patients,
+            'connected_patients': connected_patients,
+            'recent_measurements': recent_data,
+            'total_devices': Device.query.count()
+        }
+        
+        all_patients = Patient.query.order_by(Patient.first_name, Patient.last_name).all()
+        
+        return render_template('dashboard.html', 
+                             is_practitioner=False,
+                             stats=stats, 
+                             all_patients=all_patients)
 
 
 
