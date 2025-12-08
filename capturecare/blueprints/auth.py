@@ -198,9 +198,13 @@ def google_login():
 
 @auth_bp.route('/google/callback')
 def google_callback():
+    import os
     from google_auth_oauthlib.flow import Flow
     from google.oauth2 import id_token
     from google.auth.transport import requests as google_requests
+    
+    # Allow OAuth to accept additional scopes without raising warnings
+    os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
     
     # Use hardcoded production URL with HTTPS - MUST match google_login
     # Using the actual working URL
@@ -264,14 +268,8 @@ def google_callback():
     logger.info(f"Authorization response URL: {authorization_response[:100]}")
     
     try:
-        # Fetch token - handle scope warnings that OAuth may raise
-        try:
-            flow.fetch_token(authorization_response=authorization_response)
-        except Warning as w:
-            # OAuth raises Warning when scope changes (user granted additional permissions)
-            # This is acceptable - just log it and continue
-            logger.warning(f"OAuth scope changed (this is OK): {str(w)}")
-            # Token was still fetched successfully despite the warning
+        # Fetch token (OAUTHLIB_RELAX_TOKEN_SCOPE allows additional scopes)
+        flow.fetch_token(authorization_response=authorization_response)
         credentials = flow.credentials
         
         # Verify the ID token with request object for additional security
