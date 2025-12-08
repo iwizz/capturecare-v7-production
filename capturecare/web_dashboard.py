@@ -4922,7 +4922,11 @@ def google_callback():
     if authorization_response.startswith('http://'):
         authorization_response = authorization_response.replace('http://', 'https://', 1)
     
-    flow.fetch_token(authorization_response=authorization_response)
+    # Fetch token - catch and handle scope warnings gracefully
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', message='Scope has changed')
+        flow.fetch_token(authorization_response=authorization_response)
     credentials = flow.credentials
     userinfo = id_token.verify_oauth2_token(credentials.id_token, google_requests.Request(), client_id)
     user = User.query.filter_by(email=userinfo['email']).first()

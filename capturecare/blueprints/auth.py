@@ -264,7 +264,11 @@ def google_callback():
     logger.info(f"Authorization response URL: {authorization_response[:100]}")
     
     try:
-        flow.fetch_token(authorization_response=authorization_response)
+        # Fetch token - catch and handle scope warnings gracefully
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', message='Scope has changed')
+            flow.fetch_token(authorization_response=authorization_response)
         credentials = flow.credentials
         
         # Verify the ID token with request object for additional security
