@@ -873,7 +873,7 @@ class CompanyAsset(db.Model):
     # For uploaded files
     file_path = db.Column(db.String(500), nullable=True)  # Path to uploaded file
     file_name = db.Column(db.String(255), nullable=True)  # Original filename
-    file_type = db.Column(db.String(50), nullable=True)  # MIME type
+    file_type = db.Column(db.String(200), nullable=True)  # MIME type (can be long for some formats)
     file_size = db.Column(db.Integer, nullable=True)  # File size in bytes
     
     # For links
