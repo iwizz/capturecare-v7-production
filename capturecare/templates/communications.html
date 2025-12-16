@@ -2,12 +2,9 @@
 
 {% block title %}Communications - CaptureCare{% endblock %}
 
-{% block head %}
-<!-- Twilio Video SDK -->
-<script src="https://sdk.twilio.com/js/video/releases/2.27.0/twilio-video.min.js"></script>
-{% endblock %}
-
 {% block content %}
+<!-- Twilio Video SDK - Load first -->
+<script src="https://sdk.twilio.com/js/video/releases/2.27.0/twilio-video.min.js"></script>
 <div class="container mx-auto px-4 py-8">
     <!-- Page Header -->
     <div class="mb-8">
@@ -260,23 +257,92 @@
         
         <!-- Video Setup View -->
         <div id="videoSetup" class="p-6">
-            <div class="mb-4">
-                <label class="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
-                <select id="videoPatientSelect" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
-                    <option value="">Loading patients...</option>
-                </select>
-            </div>
+            <!-- Step Indicator -->
             <div class="mb-6">
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p class="text-sm text-blue-800">
-                        <i class="fas fa-info-circle mr-2"></i>
-                        A video room will be created and you can send the link to your patient via SMS.
-                    </p>
+                <div class="flex items-center justify-between text-xs font-semibold mb-2">
+                    <span id="step1" class="text-brand-bright-teal">1. Patient Info</span>
+                    <span id="step2" class="text-gray-400">2. Send SMS</span>
+                    <span id="step3" class="text-gray-400">3. Setup & Join</span>
+                </div>
+                <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div id="progressBar" class="h-full bg-brand-bright-teal transition-all duration-300" style="width: 33%"></div>
                 </div>
             </div>
-            <button onclick="startVideoCallSession()" class="w-full px-4 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
-                <i class="fas fa-video mr-2"></i>Start Video Call
-            </button>
+            
+            <!-- Patient Selection -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-user mr-1"></i>Select Patient
+                </label>
+                <select id="videoPatientSelect" required onchange="onVideoPatientChange()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">Select a patient...</option>
+                </select>
+            </div>
+            
+            <!-- Patient Phone -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-mobile-alt mr-1"></i>Patient Phone Number
+                </label>
+                <input type="tel" id="videoPatientPhone" placeholder="+61 400 000 000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                <p class="text-xs text-gray-500 mt-1">SMS invite will be sent to this number</p>
+            </div>
+            
+            <!-- Your Phone (Optional) -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-phone mr-1"></i>Your Phone Number (Optional)
+                </label>
+                <input type="tel" id="videoPractitionerPhone" placeholder="+61 400 000 000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                <p class="text-xs text-gray-500 mt-1">For backup communication if needed</p>
+            </div>
+            
+            <!-- Process Info -->
+            <div class="mb-6">
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                    <h4 class="font-semibold text-blue-900 mb-2 flex items-center">
+                        <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
+                        Video Call Process
+                    </h4>
+                    <ol class="text-sm text-blue-800 space-y-1 ml-6 list-decimal">
+                        <li>Enter patient phone number above</li>
+                        <li>Click "Send SMS Invite" (sends link to patient)</li>
+                        <li>Setup your camera to preview</li>
+                        <li>Click "Join Call" to start the video room</li>
+                        <li>Patient clicks link in SMS and joins you!</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="space-y-3">
+                <button id="sendVideoSmsBtn" onclick="sendVideoInviteSms()" disabled class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    <i class="fas fa-sms mr-2"></i>Step 1: Send SMS Invite to Patient
+                </button>
+                
+                <button id="setupCameraBtn" onclick="setupCameraForVideo()" disabled class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    <i class="fas fa-camera mr-2"></i>Step 2: Setup Your Camera
+                </button>
+                
+                <!-- Camera Preview (Hidden initially) -->
+                <div id="cameraPreviewContainer" class="hidden">
+                    <div class="mb-3">
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Your Camera Preview</label>
+                        <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="height: 240px;">
+                            <div id="cameraPreview" class="w-full h-full flex items-center justify-center">
+                                <div class="text-center text-white">
+                                    <i class="fas fa-video text-5xl mb-2 text-gray-600"></i>
+                                    <p class="text-sm text-gray-400">Camera preview</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button id="startVideoBtn" onclick="startVideoCallSession()" disabled class="w-full px-4 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    <i class="fas fa-video mr-2"></i>Step 3: Join Video Call
+                </button>
+            </div>
         </div>
         
         <!-- Active Video Call View -->
@@ -793,6 +859,56 @@ async function loadPatients() {
     }
 }
 
+// Video patient selection handler
+function onVideoPatientChange() {
+    const select = document.getElementById('videoPatientSelect');
+    const patientId = select.value;
+    
+    if (patientId) {
+        // Get phone from data attribute
+        const phone = select.selectedOptions[0]?.getAttribute('data-phone');
+        document.getElementById('videoPatientPhone').value = phone || '';
+        
+        // Enable send SMS button if phone exists
+        const sendBtn = document.getElementById('sendVideoSmsBtn');
+        if (phone) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-sms mr-2"></i>Step 1: Send SMS Invite to Patient';
+        } else {
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>No Phone Number Available';
+        }
+        
+        // Update progress
+        updateVideoProgress(1);
+    } else {
+        document.getElementById('videoPatientPhone').value = '';
+        document.getElementById('sendVideoSmsBtn').disabled = true;
+        updateVideoProgress(0);
+    }
+}
+
+function updateVideoProgress(step) {
+    const steps = ['step1', 'step2', 'step3'];
+    const progressBar = document.getElementById('progressBar');
+    
+    // Update step colors
+    steps.forEach((stepId, index) => {
+        const el = document.getElementById(stepId);
+        if (index < step) {
+            el.className = 'text-green-600';
+        } else if (index === step) {
+            el.className = 'text-brand-bright-teal';
+        } else {
+            el.className = 'text-gray-400';
+        }
+    });
+    
+    // Update progress bar
+    const width = ((step + 1) / 3) * 100;
+    progressBar.style.width = width + '%';
+}
+
 // ==================== SMS MODAL ====================
 
 function openSmsModal() {
@@ -970,57 +1086,180 @@ async function endPhoneCall() {
 
 // ==================== VIDEO CALL MODAL ====================
 
+let videoRoomCreated = false;
+let videoRoomLink = '';
+let videoRoomName = '';  // Store the actual room name
+let videoRoomToken = '';  // Store the token (valid for 1 hour!)
+let smsSentForVideo = false;
+
 function openVideoCallModal() {
     document.getElementById('videoCallModal').classList.remove('hidden');
     document.getElementById('videoSetup').classList.remove('hidden');
     document.getElementById('activeVideoCall').classList.add('hidden');
-}
-
-function closeVideoCallModal() {
-    if (videoRoom && confirm('End the video call?')) {
-        endVideoCall();
+    
+    // Reset state
+    videoRoomCreated = false;
+    videoRoomLink = '';
+    videoRoomName = '';  // Clear room name
+    videoRoomToken = '';  // Clear token
+    smsSentForVideo = false;
+    
+    // Reset camera preview
+    const previewContainer = document.getElementById('cameraPreviewContainer');
+    previewContainer.classList.add('hidden');
+    
+    const preview = document.getElementById('cameraPreview');
+    preview.innerHTML = `
+        <div class="text-center text-white">
+            <i class="fas fa-video text-5xl mb-2 text-gray-600"></i>
+            <p class="text-sm text-gray-400">Camera preview</p>
+        </div>
+    `;
+    
+    // Reset buttons
+    document.getElementById('sendVideoSmsBtn').disabled = true;
+    document.getElementById('setupCameraBtn').disabled = true;
+    document.getElementById('startVideoBtn').disabled = true;
+    
+    // Reset progress
+    updateVideoProgress(0);
+    
+    // Stop any existing tracks
+    if (localVideoTrack) {
+        localVideoTrack.stop();
+        localVideoTrack = null;
     }
-    document.getElementById('videoCallModal').classList.add('hidden');
+    if (localAudioTrack) {
+        localAudioTrack.stop();
+        localAudioTrack = null;
+    }
 }
 
-async function startVideoCallSession() {
+async function sendVideoInviteSms() {
     const patientId = document.getElementById('videoPatientSelect').value;
+    const patientPhone = document.getElementById('videoPatientPhone').value;
     
     if (!patientId) {
         alert('Please select a patient');
         return;
     }
     
-    currentPatientId = patientId;
+    if (!patientPhone) {
+        alert('Patient phone number is required');
+        return;
+    }
+    
+    const sendBtn = document.getElementById('sendVideoSmsBtn');
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Creating video room...';
     
     try {
-        // Get video token
-        const response = await fetch(`/api/patients/${patientId}/video-token`, {
+        // First, create video room and get token
+        const tokenResponse = await fetch(`/api/patients/${patientId}/video-token`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'}
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
         });
         
-        const data = await response.json();
+        const tokenData = await tokenResponse.json();
         
-        if (!data.success) {
-            alert('❌ Error: ' + data.error);
+        if (!tokenData.success) {
+            alert('❌ Error creating video room: ' + tokenData.error);
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-sms mr-2"></i>Step 1: Send SMS Invite to Patient';
             return;
         }
         
-        // Create video room link
-        const roomUrl = (window.location.origin + '/video-room/' + data.room_name);
-        document.getElementById('videoRoomLink').value = roomUrl;
+        // Save room info AND TOKEN!
+        videoRoomCreated = true;
+        videoRoomName = tokenData.room_name;  // SAVE THE ROOM NAME!
+        videoRoomToken = tokenData.token;      // SAVE THE TOKEN! (valid for 1 hour)
+        videoRoomLink = window.location.origin + '/video-room/' + tokenData.room_name;
+        currentPatientId = patientId;
+        currentPatientPhone = patientPhone;
         
-        // Show active video call view
-        document.getElementById('videoSetup').classList.add('hidden');
-        document.getElementById('activeVideoCall').classList.remove('hidden');
+        console.log('✅ Video room created:', videoRoomName);
+        console.log('✅ Token saved (valid for 1 hour)');
         
-        // Connect to Twilio Video
-        if (typeof Twilio === 'undefined' || !Twilio.Video) {
-            alert('⚠️ Twilio Video SDK not loaded. Please refresh the page.');
-            return;
+        // Send SMS with video link
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending SMS...';
+        
+        const patientName = document.getElementById('videoPatientSelect').selectedOptions[0].text.split(' (')[0];
+        const message = `Hi! Your video consultation with CaptureCare is ready. Join here: ${videoRoomLink}`;
+        
+        const smsResponse = await fetch(`/api/patients/${patientId}/send-sms`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                phone: patientPhone,
+                message: message
+            })
+        });
+        
+        const smsData = await smsResponse.json();
+        
+        if (smsData.success) {
+            smsSentForVideo = true;
+            sendBtn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>SMS Sent Successfully!';
+            sendBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            sendBtn.classList.add('bg-gray-600');
+            
+            // Enable camera setup
+            document.getElementById('setupCameraBtn').disabled = false;
+            updateVideoProgress(1);
+            
+            alert('✅ SMS invite sent to patient!\n\nNow setup your camera and join the call.');
+        } else {
+            alert('❌ Error sending SMS: ' + smsData.error);
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-sms mr-2"></i>Step 1: Send SMS Invite to Patient';
         }
-        
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error: ' + error.message);
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fas fa-sms mr-2"></i>Step 1: Send SMS Invite to Patient';
+    }
+}
+
+function closeVideoCallModal() {
+    if (videoRoom && confirm('End the video call?')) {
+        endVideoCall();
+        return;
+    }
+    
+    // Stop preview tracks
+    if (localVideoTrack) {
+        localVideoTrack.stop();
+        localVideoTrack = null;
+    }
+    if (localAudioTrack) {
+        localAudioTrack.stop();
+        localAudioTrack = null;
+    }
+    
+    document.getElementById('videoCallModal').classList.add('hidden');
+}
+
+async function setupCameraForVideo() {
+    if (!smsSentForVideo) {
+        alert('Please send SMS invite to patient first!');
+        return;
+    }
+    
+    // Check if Twilio SDK is loaded
+    if (typeof Twilio === 'undefined' || !Twilio.Video) {
+        alert('⚠️ Twilio Video SDK is loading... Please wait a moment and try again.');
+        console.error('Twilio Video SDK not loaded yet');
+        return;
+    }
+    
+    const setupBtn = document.getElementById('setupCameraBtn');
+    setupBtn.disabled = true;
+    setupBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Setting up camera...';
+    
+    try {
+        // Create local tracks for preview
         const tracks = await Twilio.Video.createLocalTracks({
             audio: true,
             video: { width: 640, height: 480 }
@@ -1029,54 +1268,182 @@ async function startVideoCallSession() {
         localAudioTrack = tracks.find(track => track.kind === 'audio');
         localVideoTrack = tracks.find(track => track.kind === 'video');
         
-        videoRoom = await Twilio.Video.connect(data.token, {
-            name: data.room_name,
-            tracks: tracks
-        });
+        // Show preview container
+        document.getElementById('cameraPreviewContainer').classList.remove('hidden');
         
-        console.log('✅ Connected to video room:', videoRoom.name);
-        
-        // Attach local video
+        // Attach video to preview
         if (localVideoTrack) {
             const videoElement = localVideoTrack.attach();
             videoElement.style.width = '100%';
             videoElement.style.height = '100%';
             videoElement.style.objectFit = 'cover';
-            document.getElementById('localVideo').appendChild(videoElement);
+            
+            const preview = document.getElementById('cameraPreview');
+            preview.innerHTML = '';
+            preview.appendChild(videoElement);
+            
+            // Enable start button
+            document.getElementById('startVideoBtn').disabled = false;
+            
+            setupBtn.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Camera Ready';
+            setupBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            setupBtn.classList.add('bg-gray-600');
+            
+            // Update progress
+            updateVideoProgress(2);
+            
+            alert('✅ Camera ready! You can see yourself above.\n\nNow click "Join Video Call" to enter the room.');
+        }
+    } catch (error) {
+        console.error('Error setting up camera:', error);
+        alert('❌ Error accessing camera: ' + error.message + '\n\nPlease ensure:\n- Camera/microphone permissions are granted\n- Camera is not in use by another app');
+        
+        setupBtn.disabled = false;
+        setupBtn.innerHTML = '<i class="fas fa-camera mr-2"></i>Step 2: Setup Your Camera';
+    }
+}
+
+async function startVideoCallSession() {
+    if (!smsSentForVideo) {
+        alert('Please send SMS invite to patient first!');
+        return;
+    }
+    
+    if (!localVideoTrack || !localAudioTrack) {
+        alert('Please setup your camera first!');
+        return;
+    }
+    
+    if (!videoRoomCreated) {
+        alert('Video room not created. Please try again.');
+        return;
+    }
+    
+    const startBtn = document.getElementById('startVideoBtn');
+    startBtn.disabled = true;
+    startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Joining room...';
+    
+    try {
+        // Use the SAVED token and room name (no need for another API call!)
+        console.log('🔄 Joining room with saved token:', videoRoomName);
+        
+        // Set the room link in the UI
+        document.getElementById('videoRoomLink').value = videoRoomLink;
+        
+        // Show active video call view
+        document.getElementById('videoSetup').classList.add('hidden');
+        document.getElementById('activeVideoCall').classList.remove('hidden');
+        
+        // Connect to Twilio Video using SAVED token and room name
+        videoRoom = await Twilio.Video.connect(videoRoomToken, {
+            name: videoRoomName,
+            tracks: [localAudioTrack, localVideoTrack]
+        });
+        
+        console.log('✅ Connected to video room:', videoRoom.name);
+        
+        // Attach local video to active call view
+        const localVideoDiv = document.getElementById('localVideo');
+        localVideoDiv.innerHTML = ''; // Clear any existing content
+        
+        if (localVideoTrack) {
+            const videoElement = localVideoTrack.attach();
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            videoElement.style.objectFit = 'cover';
+            localVideoDiv.appendChild(videoElement);
         }
         
         // Start call timer
         videoCallStartTime = Date.now();
         videoCallTimer = setInterval(updateVideoCallDuration, 1000);
+        document.getElementById('videoCallStatus').textContent = 'Connected - Waiting for patient to join...';
         
         // Handle participant connections
         videoRoom.on('participantConnected', participant => {
             console.log('Participant connected:', participant.identity);
+            document.getElementById('videoCallStatus').textContent = 'Patient joined!';
             handleRemoteParticipant(participant);
         });
         
+        videoRoom.on('participantDisconnected', participant => {
+            console.log('Participant disconnected:', participant.identity);
+            document.getElementById('videoCallStatus').textContent = 'Patient disconnected';
+            const remoteDiv = document.getElementById('remoteVideo');
+            remoteDiv.innerHTML = `
+                <div class="text-center">
+                    <i class="fas fa-user-circle text-6xl mb-2 text-gray-600"></i>
+                    <p class="text-sm text-gray-400">Patient disconnected</p>
+                </div>
+            `;
+        });
+        
+        // Check if participants already in room
         videoRoom.participants.forEach(handleRemoteParticipant);
+        
+        // Update progress to complete
+        updateVideoProgress(3);
         
     } catch (error) {
         console.error('Error starting video call:', error);
-        alert('❌ Error starting video call: ' + error.message);
+        alert('❌ Error joining video call: ' + error.message);
+        
+        // Go back to setup view
+        document.getElementById('activeVideoCall').classList.add('hidden');
+        document.getElementById('videoSetup').classList.remove('hidden');
+        startBtn.disabled = false;
+        startBtn.innerHTML = '<i class="fas fa-video mr-2"></i>Step 3: Join Video Call';
     }
 }
 
 function handleRemoteParticipant(participant) {
+    console.log('Setting up remote participant:', participant.identity);
     document.getElementById('remoteParticipantName').textContent = participant.identity;
     
-    participant.on('trackSubscribed', track => {
-        if (track.kind === 'video') {
-            const videoElement = track.attach();
-            videoElement.style.width = '100%';
-            videoElement.style.height = '100%';
-            videoElement.style.objectFit = 'cover';
-            const remoteDiv = document.getElementById('remoteVideo');
-            remoteDiv.innerHTML = '';
-            remoteDiv.appendChild(videoElement);
+    // Handle already published tracks
+    participant.tracks.forEach(publication => {
+        if (publication.track) {
+            attachTrack(publication.track);
         }
     });
+    
+    // Handle newly published tracks
+    participant.on('trackSubscribed', track => {
+        console.log('Track subscribed:', track.kind);
+        attachTrack(track);
+    });
+    
+    // Handle unpublished tracks
+    participant.on('trackUnsubscribed', track => {
+        console.log('Track unsubscribed:', track.kind);
+        if (track.kind === 'video') {
+            const remoteDiv = document.getElementById('remoteVideo');
+            remoteDiv.innerHTML = `
+                <div class="text-center">
+                    <i class="fas fa-user-circle text-6xl mb-2 text-gray-600"></i>
+                    <p class="text-sm text-gray-400">Patient camera off</p>
+                </div>
+            `;
+        }
+    });
+}
+
+function attachTrack(track) {
+    if (track.kind === 'video') {
+        const videoElement = track.attach();
+        videoElement.style.width = '100%';
+        videoElement.style.height = '100%';
+        videoElement.style.objectFit = 'cover';
+        
+        const remoteDiv = document.getElementById('remoteVideo');
+        remoteDiv.innerHTML = '';
+        remoteDiv.appendChild(videoElement);
+        
+        console.log('✅ Remote video attached');
+    } else if (track.kind === 'audio') {
+        // Audio tracks are automatically played
+        console.log('✅ Remote audio attached');
+    }
 }
 
 function updateVideoCallDuration() {
@@ -1115,14 +1482,26 @@ function toggleVideoCamera() {
 }
 
 async function endVideoCall() {
+    // Disconnect from video room
     if (videoRoom) {
         videoRoom.disconnect();
         videoRoom = null;
     }
     
+    // Stop call timer
     if (videoCallTimer) {
         clearInterval(videoCallTimer);
         videoCallTimer = null;
+    }
+    
+    // Stop and cleanup local tracks
+    if (localVideoTrack) {
+        localVideoTrack.stop();
+        localVideoTrack = null;
+    }
+    if (localAudioTrack) {
+        localAudioTrack.stop();
+        localAudioTrack = null;
     }
     
     // Log the video call
@@ -1134,20 +1513,24 @@ async function endVideoCall() {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({duration})
             });
+            console.log('✅ Video call logged:', duration, 'seconds');
         } catch (error) {
             console.error('Error logging video call:', error);
         }
     }
     
-    closeVideoCallModal();
-    loadCorrespondence(); // Reload to show video call log
-    
     // Reset states
     videoCallStartTime = null;
     isVideoMuted = false;
     isVideoCameraOff = false;
-    localAudioTrack = null;
-    localVideoTrack = null;
+    currentPatientId = null;
+    
+    // Reset icon states
+    document.getElementById('videoMuteIcon').className = 'fas fa-microphone text-xl';
+    document.getElementById('videoCameraIcon').className = 'fas fa-video text-xl';
+    
+    closeVideoCallModal();
+    loadCorrespondence(); // Reload to show video call log
 }
 
 function copyVideoLink() {
@@ -1158,10 +1541,13 @@ function copyVideoLink() {
 }
 
 async function sendVideoLinkSms() {
-    if (!currentPatientId) return;
+    if (!currentPatientId) {
+        alert('⚠️ No patient selected');
+        return;
+    }
     
     const roomLink = document.getElementById('videoRoomLink').value;
-    const phone = currentPatientPhone || document.getElementById('callPhone').value;
+    const phone = currentPatientPhone;
     
     if (!phone) {
         alert('⚠️ Patient phone number not available');
@@ -1180,7 +1566,7 @@ async function sendVideoLinkSms() {
         const data = await response.json();
         
         if (data.success) {
-            alert('✅ Video link sent via SMS!');
+            alert('✅ Video link sent via SMS again!');
         } else {
             alert('❌ Error sending SMS: ' + data.error);
         }
