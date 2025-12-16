@@ -127,6 +127,12 @@
                     <span class="font-medium sidebar-text">Add Patient</span>
                 </a>
 
+                <a href="{{ url_for('leads.leads_list') }}"
+                   class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
+                    <i class="fas fa-address-book text-lg w-6 sidebar-icon flex-shrink-0"></i>
+                    <span class="font-medium sidebar-text">Leads</span>
+                </a>
+
                 <a href="{{ url_for('appointments.master_calendar') }}" 
                    class="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-brand-bright-teal transition group">
                     <i class="fas fa-calendar-alt text-lg w-6 sidebar-icon flex-shrink-0"></i>

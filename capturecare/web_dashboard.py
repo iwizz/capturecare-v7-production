@@ -31,6 +31,7 @@ from blueprints.auth import auth_bp
 from blueprints.patients import patients_bp
 from blueprints.patient_portal import patient_portal_bp
 from blueprints.appointments import appointments_bp
+from blueprints.leads import leads_bp
 
 
 # Configure logging with Australian Eastern time
@@ -133,6 +134,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(patients_bp)
 app.register_blueprint(patient_portal_bp)
 app.register_blueprint(appointments_bp)
+app.register_blueprint(leads_bp)
 
 # Force production security settings
 os.environ['FLASK_DEBUG'] = '0'
