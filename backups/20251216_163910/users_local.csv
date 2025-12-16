@@ -1,0 +1,2 @@
+id,username,email,password_hash,first_name,last_name,role,calendar_color,google_calendar_id,is_admin,is_active,password_setup_token,password_setup_token_expires,password_set,created_at,updated_at
+1,iwizz,admin@capturecare.com,scrypt:32768:8:1$daqLnSzpjO3JbYGf$35b4f0e811c7701a219730cb672ed368191f1e9ca5d64aa124f258dc2646cd16ca5adab6dfe7647c8f1f712c175fdd32840bd331a64e1d9e68873249564177f3,,,practitioner,#00698f,,1,1,,,0,2025-11-07 04:51:06.170305,2025-11-07 05:40:06.288497

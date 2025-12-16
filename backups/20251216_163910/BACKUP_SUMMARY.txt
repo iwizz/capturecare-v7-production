@@ -1,0 +1,27 @@
+===========================================
+CAPTURECARE DATABASE BACKUP SUMMARY
+Date: $(date)
+===========================================
+
+LOCAL SQLite BACKUP:
+✅ Database file: capturecare_local_20251216_163917.db (148KB)
+✅ CSV exports: users_local.csv (1 user)
+- Note: Local database is mostly empty (dev environment)
+
+CLOUD SQL BACKUP:
+✅ On-demand backup created in Google Cloud SQL
+   - Instance: capturecare-db  
+   - Region: australia-southeast2
+   - Database: capturecare
+   - Contains: 11 patients, 5 leads, appointments, health data
+
+TO RESTORE FROM CLOUD SQL BACKUP:
+gcloud sql backups list --instance=capturecare-db
+gcloud sql backups restore [BACKUP_ID] --backup-instance=capturecare-db
+
+BACKUP LOCATION:
+$(pwd)/backups/20251216_163910/
+
+GIT COMMIT STATUS:
+Current HEAD: $(git log --oneline -1)
+
