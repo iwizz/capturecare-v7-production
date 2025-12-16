@@ -204,8 +204,8 @@
                         <div id="localParticipantVideo" class="w-full h-full flex items-center justify-center bg-gray-900">
                             <i class="fas fa-user text-white text-2xl sm:text-3xl opacity-50"></i>
                         </div>
-                        <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs py-1 px-2 text-center">
-                            You
+                        <div id="localParticipantName" class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs py-1 px-2 text-center truncate">
+                            {{ participant_name if participant_name else 'You' }}
                         </div>
                     </div>
                     
@@ -334,11 +334,11 @@
                     // Subscribe to tracks
                     participant.tracks.forEach(publication => {
                         if (publication.track) {
-                            attachTrack(publication.track);
+                            attachTrack(publication.track, participant);
                         }
                     });
                     
-                    participant.on('trackSubscribed', attachTrack);
+                    participant.on('trackSubscribed', track => attachTrack(track, participant));
                 }
 
                 function participantDisconnected(participant) {
@@ -360,14 +360,31 @@
                     }
                 }
 
-                function attachTrack(track) {
+                function attachTrack(track, participant) {
                     if (track.kind === 'video') {
                         const videoElement = track.attach();
                         videoElement.style.width = '100%';
                         videoElement.style.height = '100%';
                         videoElement.style.objectFit = 'cover';
-                        document.getElementById('remoteParticipantVideo').innerHTML = '';
-                        document.getElementById('remoteParticipantVideo').appendChild(videoElement);
+                        
+                        // Create container with name label
+                        const container = document.getElementById('remoteParticipantVideo');
+                        container.innerHTML = '';
+                        container.appendChild(videoElement);
+                        
+                        // Add participant name label if available
+                        if (participant && participant.identity) {
+                            // Extract readable name from identity (e.g., "John Smith" or "practitioner_123")
+                            let displayName = participant.identity;
+                            if (displayName.startsWith('practitioner_')) {
+                                displayName = 'Healthcare Provider';
+                            }
+                            
+                            const nameLabel = document.createElement('div');
+                            nameLabel.className = 'absolute bottom-2 left-2 bg-black bg-opacity-70 text-white text-sm py-2 px-3 rounded-lg';
+                            nameLabel.textContent = displayName;
+                            container.appendChild(nameLabel);
+                        }
                     } else if (track.kind === 'audio') {
                         const audioElement = track.attach();
                         document.body.appendChild(audioElement);

@@ -2841,9 +2841,24 @@ def video_room_patient(room_name):
     try:
         from twilio.jwt.access_token import AccessToken
         from twilio.jwt.access_token.grants import VideoGrant
+        from ..models import Patient
+        import re
         
-        # Generate access token for patient
-        identity = f"patient_{room_name}"
+        # Extract patient ID from room name (format: patient_123_xxxx)
+        patient_name = "Patient"
+        try:
+            match = re.search(r'patient_(\d+)_', room_name)
+            if match:
+                patient_id = int(match.group(1))
+                patient = Patient.query.get(patient_id)
+                if patient:
+                    patient_name = f"{patient.first_name} {patient.last_name}"
+                    logger.info(f"📹 Found patient: {patient_name}")
+        except Exception as e:
+            logger.warning(f"Could not extract patient name: {e}")
+        
+        # Generate access token for patient with their real name
+        identity = patient_name
         
         if use_api_keys:
             # Use Video API Keys (from Settings page)
@@ -2885,7 +2900,8 @@ def video_room_patient(room_name):
         return render_template('video_room.html', 
                             room_name=room_name,
                             access_token=token.to_jwt(),
-                            credentials_missing=False)
+                            credentials_missing=False,
+                            participant_name=patient_name)
     except ValueError as e:
         # Validation errors
         error_msg = str(e)
