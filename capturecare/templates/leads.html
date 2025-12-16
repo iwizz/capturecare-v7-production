@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Leads - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-8">
+    <h1 class="text-4xl font-bold text-gray-800">
+        <i class="fas fa-user-plus text-brand-bright-teal mr-3"></i>
+        Leads Management
+    </h1>
+    <a href="{{ url_for('leads.add_lead') }}"
+       class="bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
+        <i class="fas fa-plus mr-2"></i>Add Lead
+    </a>
+</div>
+
+<div class="bg-white rounded-lg shadow-md overflow-hidden">
+    {% if leads %}
+        <!-- Search and Filters -->
+        <div class="p-6 border-b">
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1">
+                    <div class="relative">
+                        <input type="text"
+                               id="leadSearch"
+                               placeholder="Search leads by name or email..."
+                               value="{{ search_query }}"
+                               class="w-full px-4 py-3 pl-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <i class="fas fa-search absolute left-4 top-4 text-gray-400"></i>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <select id="statusFilter" class="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="all" {% if current_filter == 'all' %}selected{% endif %}>All Status</option>
+                        <option value="new" {% if current_filter == 'new' %}selected{% endif %}>New</option>
+                        <option value="contacted" {% if current_filter == 'contacted' %}selected{% endif %}>Contacted</option>
+                        <option value="qualified" {% if current_filter == 'qualified' %}selected{% endif %}>Qualified</option>
+                        <option value="converted" {% if current_filter == 'converted' %}selected{% endif %}>Converted</option>
+                        <option value="lost" {% if current_filter == 'lost' %}selected{% endif %}>Lost</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Leads Table -->
+        <table class="min-w-full" id="leadsTable">
+            <thead class="bg-gray-100 border-b">
+                <tr>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Lead</th>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Contact</th>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Source</th>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Created</th>
+                    <th class="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+                {% for lead in leads %}
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center">
+                            <div class="bg-purple-600 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold mr-3">
+                                {{ lead.first_name[0] }}{{ lead.last_name[0] }}
+                            </div>
+                            <div>
+                                <p class="font-semibold text-gray-900">{{ lead.first_name }} {{ lead.last_name }}</p>
+                                {% if lead.created_by %}
+                                    <p class="text-sm text-gray-500">Created by: {{ lead.created_by.full_name }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-gray-600">
+                            <p>{{ lead.email }}</p>
+                            {% if lead.mobile %}
+                                <p class="text-sm">{{ lead.mobile }}</p>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-gray-600">
+                        {% if lead.source %}
+                            {{ lead.source }}
+                        {% else %}
+                            <span class="text-gray-400">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if lead.status == 'new' %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                New
+                            </span>
+                        {% elif lead.status == 'contacted' %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                Contacted
+                            </span>
+                        {% elif lead.status == 'qualified' %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                Qualified
+                            </span>
+                        {% elif lead.status == 'converted' %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
+                                Converted
+                            </span>
+                        {% elif lead.status == 'lost' %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                                Lost
+                            </span>
+                        {% else %}
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+                                {{ lead.status or 'Unknown' }}
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-600">
+                        {{ lead.created_at.strftime('%Y-%m-%d') }}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex items-center space-x-3">
+                            <a href="{{ url_for('leads.edit_lead', lead_id=lead.id) }}"
+                               class="text-blue-600 hover:text-blue-800 font-medium text-sm">
+                                <i class="fas fa-edit"></i> Edit
+                            </a>
+                            {% if lead.status != 'converted' %}
+                                <a href="{{ url_for('leads.convert_lead', lead_id=lead.id) }}"
+                                   class="text-green-600 hover:text-green-800 font-medium text-sm">
+                                    <i class="fas fa-user-check"></i> Convert
+                                </a>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('leads.delete_lead', lead_id=lead.id) }}"
+                                  class="inline" onsubmit="return confirm('Are you sure you want to delete this lead?')">
+                                <button type="submit" class="text-red-600 hover:text-red-800 font-medium text-sm">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Pagination could be added here if needed -->
+
+    {% else %}
+        <div class="text-center py-12">
+            <i class="fas fa-user-plus text-6xl text-gray-300 mb-4"></i>
+            <h3 class="text-xl font-semibold text-gray-600 mb-2">No leads yet</h3>
+            <p class="text-gray-500 mb-6">Start building your leads database by adding your first lead.</p>
+            <a href="{{ url_for('leads.add_lead') }}"
+               class="inline-block bg-brand-bright-teal text-white px-6 py-3 rounded-lg hover:bg-brand-teal transition">
+                <i class="fas fa-plus mr-2"></i>Add Your First Lead
+            </a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('leadSearch');
+    const statusFilter = document.getElementById('statusFilter');
+
+    function updateFilters() {
+        const searchValue = searchInput.value.trim();
+        const statusValue = statusFilter.value;
+
+        // Build URL with parameters
+        let url = '{{ url_for("leads.leads_list") }}';
+        const params = [];
+
+        if (searchValue) params.push(`search=${encodeURIComponent(searchValue)}`);
+        if (statusValue !== 'all') params.push(`status=${encodeURIComponent(statusValue)}`);
+
+        if (params.length > 0) {
+            url += '?' + params.join('&');
+        }
+
+        // Navigate to filtered results
+        window.location.href = url;
+    }
+
+    // Add event listeners
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            updateFilters();
+        }
+    });
+
+    statusFilter.addEventListener('change', updateFilters);
+
+    // Auto-submit search after user stops typing (debounced)
+    let searchTimeout;
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(updateFilters, 500);
+    });
+});
+</script>
+{% endblock %}

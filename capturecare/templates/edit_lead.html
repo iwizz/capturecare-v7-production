@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Lead - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <h1 class="text-4xl font-bold mb-8 text-gray-800">
+        <i class="fas fa-edit text-purple-600 mr-3"></i>
+        Edit Lead
+    </h1>
+
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <form method="POST" action="{{ url_for('leads.edit_lead', lead_id=lead.id) }}">
+            <div class="mb-6">
+                <label for="first_name" class="block text-gray-700 font-semibold mb-2">
+                    First Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="first_name" name="first_name" required
+                       value="{{ lead.first_name }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="last_name" class="block text-gray-700 font-semibold mb-2">
+                    Last Name <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="last_name" name="last_name" required
+                       value="{{ lead.last_name }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="email" class="block text-gray-700 font-semibold mb-2">
+                    Email <span class="text-red-500">*</span>
+                </label>
+                <input type="email" id="email" name="email" required
+                       value="{{ lead.email }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="mobile" class="block text-gray-700 font-semibold mb-2">
+                    Mobile Phone
+                </label>
+                <input type="tel" id="mobile" name="mobile"
+                       value="{{ lead.mobile or '' }}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div class="mb-6">
+                <label for="source" class="block text-gray-700 font-semibold mb-2">
+                    Lead Source
+                </label>
+                <select id="source" name="source"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="">Select a source...</option>
+                    <option value="website" {% if lead.source == 'website' %}selected{% endif %}>Website</option>
+                    <option value="referral" {% if lead.source == 'referral' %}selected{% endif %}>Referral</option>
+                    <option value="social_media" {% if lead.source == 'social_media' %}selected{% endif %}>Social Media</option>
+                    <option value="advertisement" {% if lead.source == 'advertisement' %}selected{% endif %}>Advertisement</option>
+                    <option value="event" {% if lead.source == 'event' %}selected{% endif %}>Event</option>
+                    <option value="cold_call" {% if lead.source == 'cold_call' %}selected{% endif %}>Cold Call</option>
+                    <option value="other" {% if lead.source == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+
+            <div class="mb-6">
+                <label for="status" class="block text-gray-700 font-semibold mb-2">
+                    Status
+                </label>
+                <select id="status" name="status"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="new" {% if lead.status == 'new' %}selected{% endif %}>New</option>
+                    <option value="contacted" {% if lead.status == 'contacted' %}selected{% endif %}>Contacted</option>
+                    <option value="qualified" {% if lead.status == 'qualified' %}selected{% endif %}>Qualified</option>
+                    <option value="converted" {% if lead.status == 'converted' %}selected{% endif %}>Converted</option>
+                    <option value="lost" {% if lead.status == 'lost' %}selected{% endif %}>Lost</option>
+                </select>
+            </div>
+
+            <div class="mb-6">
+                <label for="notes" class="block text-gray-700 font-semibold mb-2">
+                    Notes
+                </label>
+                <textarea id="notes" name="notes" rows="4"
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Any additional information about this lead...">{{ lead.notes or '' }}</textarea>
+            </div>
+
+            {% if lead.notes_history %}
+            <div class="mb-6">
+                <label class="block text-gray-700 font-semibold mb-2">
+                    Notes History
+                </label>
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-40 overflow-y-auto">
+                    <pre class="text-sm text-gray-600 whitespace-pre-wrap">{{ lead.notes_history }}</pre>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <p class="text-sm text-blue-700">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    <strong>Lead Details:</strong> Created {{ lead.created_at.strftime('%B %d, %Y') }}
+                    {% if lead.created_by %}by {{ lead.created_by.full_name }}{% endif %}
+                    {% if lead.converted_at %}• Converted to patient on {{ lead.converted_at.strftime('%B %d, %Y') }}{% endif %}
+                </p>
+            </div>
+
+            <div class="flex space-x-4">
+                <button type="submit"
+                        class="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition font-semibold">
+                    <i class="fas fa-save mr-2"></i>Update Lead
+                </button>
+                <a href="{{ url_for('leads.leads_list') }}"
+                   class="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition font-semibold text-center">
+                    <i class="fas fa-times mr-2"></i>Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
