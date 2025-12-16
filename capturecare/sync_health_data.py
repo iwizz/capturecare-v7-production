@@ -57,6 +57,7 @@ class HealthDataSynchronizer:
                 total_activities = 0
                 total_sleep = 0
                 total_devices = 0
+                total_intraday_hr = 0
                 
                 # Start from 12 months ago
                 current_start = datetime.now() - timedelta(days=365)
@@ -90,13 +91,45 @@ class HealthDataSynchronizer:
                     current_start = current_end
                     month_num += 1
                 
-                logger.info(f"🎉 FULL SYNC COMPLETE: {total_measurements} measurements, {total_activities} activities, {total_sleep} sleep records")
+                logger.info(f"✅ PHASE 1 COMPLETE: {total_measurements} measurements, {total_activities} activities, {total_sleep} sleep records")
+                
+                # PHASE 2: Fetch intraday heart rate data week-by-week (slower but safer)
+                logger.info(f"\n💓 PHASE 2: Fetching intraday heart rate data (week-by-week to avoid memory issues)")
+                
+                current_start = datetime.now() - timedelta(days=365)
+                week_num = 1
+                total_weeks = 52
+                
+                while current_start < end_date:
+                    # Calculate end of current week (or today if it's the last week)
+                    current_end = min(current_start + timedelta(days=7), end_date)
+                    
+                    if week_num % 4 == 1:  # Log every 4 weeks (monthly)
+                        logger.info(f"💓 Week {week_num}/{total_weeks}: Fetching intraday HR from {current_start.strftime('%Y-%m-%d')} to {current_end.strftime('%Y-%m-%d')}")
+                    
+                    try:
+                        # Fetch intraday heart rate for this week only
+                        intraday_data = fetcher.fetch_intraday_heart_rate(patient_id, current_start, current_end)
+                        total_intraday_hr += len(intraday_data)
+                        
+                        if week_num % 4 == 1:  # Log every 4 weeks
+                            logger.info(f"   ✅ Week {week_num}: +{len(intraday_data)} intraday HR measurements")
+                    except Exception as e:
+                        if week_num % 4 == 1:
+                            logger.error(f"   ❌ Error fetching week {week_num}: {e}")
+                    
+                    # Move to next week
+                    current_start = current_end
+                    week_num += 1
+                
+                logger.info(f"🎉 FULL SYNC COMPLETE: {total_measurements} measurements, {total_activities} activities, {total_sleep} sleep, {total_intraday_hr} intraday HR")
                 
                 data = {
                     'measurements': list(range(total_measurements)),  # Just for count
                     'activities': list(range(total_activities)),
                     'sleep': list(range(total_sleep)),
-                    'devices': list(range(total_devices))
+                    'devices': list(range(total_devices)),
+                    'intraday_hr': list(range(total_intraday_hr))
                 }
             
             # INCREMENTAL SYNC: Normal logic
