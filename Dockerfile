@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Force rebuild - Date filter UX update 2025-12-16
+ENV BUILD_VERSION=20251216_v2
+
 # Set working directory
 WORKDIR /app
 
