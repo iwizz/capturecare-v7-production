@@ -73,6 +73,17 @@
     opacity: 0.8;
 }
 
+/* Show edit button on hover */
+.appointment-badge-new:hover .appointment-edit-btn,
+[draggable="true"]:hover .appointment-edit-btn {
+    display: block !important;
+}
+
+.appointment-edit-btn:hover {
+    background: white !important;
+    transform: scale(1.1);
+}
+
 .appointment-badge-new::before {
     content: '';
     position: absolute;

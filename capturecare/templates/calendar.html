@@ -21,6 +21,12 @@
                 <div class="text-xs text-gray-500 mb-1">Total Appointments</div>
                 <div id="totalAppointments" class="text-2xl font-bold text-brand-bright-teal">-</div>
             </div>
+            {% if current_user.role == 'admin' %}
+            <button onclick="cleanupUnknownAppointments()" 
+                    class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm">
+                <i class="fas fa-trash mr-2"></i>Cleanup Unknown
+            </button>
+            {% endif %}
             <button onclick="openCreateAppointmentModal()" 
                     class="px-6 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
                 <i class="fas fa-plus mr-2"></i>New Appointment
@@ -1978,6 +1984,26 @@ function openCreateAppointmentModal(startDate = null) {
     document.getElementById('appointmentModal').classList.remove('hidden');
 }
 
+async function editAppointmentFromCalendar(appointmentId) {
+    try {
+        // Fetch appointment details
+        const response = await fetch(`/api/calendar/events`);
+        const data = await response.json();
+        const events = Array.isArray(data) ? data : (data.success ? data.events : []);
+        
+        const event = events.find(e => e.id == appointmentId);
+        
+        if (event) {
+            editAppointment(event);
+        } else {
+            showNotification('Appointment not found', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading appointment:', error);
+        showNotification('Error loading appointment', 'error');
+    }
+}
+
 function editAppointment(event) {
     document.getElementById('appointmentModalTitle').textContent = 'Edit Appointment';
     document.getElementById('appointmentId').value = event.id;
@@ -3148,7 +3174,7 @@ function createAppointmentBadge(appointment, practitionerColor) {
     
     return `
         <div class="appointment-badge-new ${stateClass}" 
-             style="background-color: ${practitionerColor}; border-left: 4px solid ${practitionerColor}; pointer-events: none;"
+             style="background-color: ${practitionerColor}; border-left: 4px solid ${practitionerColor};"
              data-appointment-id="${appointment.appointmentId}"
              data-patient-id="${appointment.patientId}">
             
@@ -3161,6 +3187,12 @@ function createAppointmentBadge(appointment, practitionerColor) {
             <div class="appointment-practitioner" style="font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                 ${practName}
             </div>
+            
+            <button class="appointment-edit-btn" 
+                    onclick="event.stopPropagation(); editAppointmentFromCalendar(${appointment.appointmentId}); return false;"
+                    style="position: absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.9); border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 10px; color: #333; pointer-events: auto; z-index: 10; display: none;">
+                <i class="fas fa-edit"></i>
+            </button>
         </div>
     `;
 }
@@ -3319,6 +3351,37 @@ async function loadAppointmentDetails(appointmentId) {
     } catch (error) {
         console.error('Error loading appointment details:', error);
         document.getElementById('appointmentDrawerContent').innerHTML = '<p class="text-red-500">Error loading appointment details</p>';
+    }
+}
+
+// Admin function to cleanup unknown appointments
+async function cleanupUnknownAppointments() {
+    if (!confirm('⚠️ This will delete all appointments with Unknown Patient or Unknown Practitioner. Continue?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/cleanup-unknown-appointments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(`✅ ${data.message}`, 'success');
+            // Reload the current view
+            if (currentView === 'month') loadMonthGrid();
+            else if (currentView === 'week') loadWeekGrid();
+            else if (currentView === 'day') loadDayGrid();
+        } else {
+            showNotification(`❌ Error: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error cleaning up appointments:', error);
+        showNotification('❌ Error cleaning up appointments', 'error');
     }
 }
 </script>
