@@ -811,3 +811,45 @@ class OnboardingChecklist(db.Model):
             },
             'notes': self.notes
         }
+
+
+class Lead(db.Model):
+    """Lead management for potential patients"""
+    __tablename__ = 'leads'
+
+    id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
+    mobile = db.Column(db.String(20), nullable=True)
+    source = db.Column(db.String(100), nullable=True)
+    status = db.Column(db.String(50), nullable=True)
+
+    # Form tracking
+    form_sent_at = db.Column(db.DateTime, nullable=True)
+    form_sent_via = db.Column(db.String(20), nullable=True)
+    form_completed_at = db.Column(db.DateTime, nullable=True)
+    form_url = db.Column(db.Text, nullable=True)
+
+    # Conversion tracking
+    converted_to_patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=True)
+    converted_at = db.Column(db.DateTime, nullable=True)
+
+    notes = db.Column(db.Text, nullable=True)
+    notes_history = db.Column(db.Text, nullable=True)
+
+    # Audit fields
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    created_by = db.relationship('User', foreign_keys=[created_by_id], lazy='select')
+    converted_patient = db.relationship('Patient', foreign_keys=[converted_to_patient_id], lazy='select')
+
+    def __repr__(self):
+        return f'<Lead {self.first_name} {self.last_name}>'
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"
