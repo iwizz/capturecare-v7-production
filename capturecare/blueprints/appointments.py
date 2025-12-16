@@ -1314,6 +1314,7 @@ def get_batch_availability():
                                     continue
                         
                         # Get booked appointments for this date
+                        booked_appointments = []  # Store full appointment info
                         try:
                             appointments = Appointment.query.filter(
                                 Appointment.practitioner_id == practitioner_id,
@@ -1322,6 +1323,10 @@ def get_batch_availability():
                             
                             for apt in appointments:
                                 booked_slots.append(apt.start_time.strftime('%H:%M'))
+                                booked_appointments.append({
+                                    'start': apt.start_time,
+                                    'end': apt.end_time
+                                })
                         except Exception as db_error:
                             # If reminder fields don't exist, try to add them or use raw SQL
                             error_str = str(db_error).lower()
@@ -1360,6 +1365,10 @@ def get_batch_availability():
                                     ).all()
                                     for apt in appointments:
                                         booked_slots.append(apt.start_time.strftime('%H:%M'))
+                                        booked_appointments.append({
+                                            'start': apt.start_time,
+                                            'end': apt.end_time
+                                        })
                                 except:
                                     db.session.rollback()
                                     # Use raw SQL as fallback
@@ -1378,8 +1387,40 @@ def get_batch_availability():
                             else:
                                 raise
                     
+                    # Filter available slots to remove those that conflict with booked appointments
+                    filtered_slots = []
+                    for slot in available_slots:
+                        slot_time = datetime.strptime(slot, '%H:%M').time()
+                        slot_datetime = datetime.combine(target_date, slot_time)
+                        end_datetime = slot_datetime + timedelta(minutes=duration_minutes)
+                        
+                        # Check if this slot conflicts with any booked appointment
+                        has_conflict = False
+                        for booked_appt in booked_appointments:
+                            booked_start = booked_appt['start']
+                            booked_end = booked_appt['end']
+                            
+                            # Ensure datetime objects for comparison
+                            if isinstance(booked_start, datetime):
+                                booked_start_dt = booked_start
+                            else:
+                                booked_start_dt = datetime.combine(target_date, booked_start)
+                            
+                            if isinstance(booked_end, datetime):
+                                booked_end_dt = booked_end
+                            else:
+                                booked_end_dt = datetime.combine(target_date, booked_end)
+                            
+                            # Check for any overlap between [slot_datetime, end_datetime) and [booked_start_dt, booked_end_dt)
+                            if (slot_datetime < booked_end_dt and end_datetime > booked_start_dt):
+                                has_conflict = True
+                                break
+                        
+                        if not has_conflict:
+                            filtered_slots.append(slot)
+                    
                     result[practitioner_id][date_str] = {
-                        'available_slots': available_slots,
+                        'available_slots': filtered_slots,  # Use filtered slots instead of all slots
                         'booked_slots': booked_slots,
                         'is_blocked': full_day_block
                     }
