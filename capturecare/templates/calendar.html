@@ -618,14 +618,14 @@ function switchView(view) {
         document.getElementById('viewWeek').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
         document.getElementById('weekGridView').classList.remove('hidden');
         document.getElementById('monthGridView').classList.add('hidden');
-        document.getElementById('fullCalendarView').classList.add('hidden');
+        document.getElementById('dayGridView').classList.add('hidden');
         loadWeekGrid();
     } else if (view === 'month') {
         document.getElementById('viewMonth').classList.remove('text-gray-600', 'border-transparent');
         document.getElementById('viewMonth').classList.add('text-brand-bright-teal', 'border-brand-bright-teal');
         document.getElementById('weekGridView').classList.add('hidden');
         document.getElementById('monthGridView').classList.remove('hidden');
-        document.getElementById('fullCalendarView').classList.add('hidden');
+        document.getElementById('dayGridView').classList.add('hidden');
         loadMonthGrid();
     } else {
         document.getElementById('viewDay').classList.remove('text-gray-600', 'border-transparent');
@@ -704,7 +704,7 @@ async function loadWeekGrid() {
             events.forEach(event => {
                 const practId = event.extendedProps?.practitioner_id;
                 // Show appointments if no practitioners are selected OR if practitioner is in active set
-                const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
+                const shouldShow = activePractitioners.size === 0 || !practId || activePractitioners.has(practId.toString()) || activePractitioners.has(String(practId));
                 
                 if (shouldShow) {
                     const startDate = new Date(event.start);
@@ -1486,7 +1486,8 @@ async function loadMonthGrid() {
                 events.forEach(event => {
                 const practId = event.extendedProps?.practitioner_id;
                 // Show appointments if no practitioners are selected OR if practitioner is in active set
-                const shouldShow = activePractitioners.size === 0 || (practId && activePractitioners.has(practId.toString()));
+                // Always show appointments regardless of filter for now
+                const shouldShow = activePractitioners.size === 0 || !practId || activePractitioners.has(practId.toString()) || activePractitioners.has(String(practId));
                 
                 if (shouldShow) {
                     const startDate = new Date(event.start);
