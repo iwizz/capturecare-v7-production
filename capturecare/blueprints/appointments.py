@@ -2558,7 +2558,7 @@ def get_patient_sync_info(patient_id):
                 withings_status['is_connected'] = True
                 
                 # Get last sync from patient's last_synced_at or from last HealthData record
-                if patient.last_synced_at:
+                if hasattr(patient, 'last_synced_at') and patient.last_synced_at:
                     withings_status['last_sync'] = patient.last_synced_at.isoformat()
                 
                 # Get last health data record timestamp
@@ -2672,7 +2672,8 @@ def sync_patient_data(patient_id):
                 )
                 
                 if result.get('success'):
-                    patient.last_synced_at = datetime.utcnow()
+                    if hasattr(patient, 'last_synced_at'):
+                        patient.last_synced_at = datetime.utcnow()
                     db.session.commit()
                     return jsonify({
                         'success': True,

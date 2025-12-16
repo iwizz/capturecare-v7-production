@@ -8730,7 +8730,10 @@ function copyVideoModalRoomUrl() {
             </div>
         </div>
         
-        <div class="p-6 border-t border-gray-200 flex justify-end">
+        <div class="p-6 border-t border-gray-200 flex justify-end gap-3">
+            <button id="syncCancelBtn" onclick="cancelSync()" class="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold">
+                <i class="fas fa-stop mr-2"></i>Cancel Sync
+            </button>
             <button id="syncCloseBtn" onclick="closeSyncModal()" class="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg font-semibold hidden">
                 Close
             </button>
@@ -8740,6 +8743,17 @@ function copyVideoModalRoomUrl() {
 
 <script>
 let syncInProgress = false;
+let syncAbortController = null;
+
+function cancelSync() {
+    if (syncAbortController) {
+        syncAbortController.abort();
+        addSyncStatus('Sync cancelled by user', 'The sync operation was stopped', 'error');
+        syncInProgress = false;
+        document.getElementById('syncCancelBtn').classList.add('hidden');
+        document.getElementById('syncCloseBtn').classList.remove('hidden');
+    }
+}
 
 function addSyncStatus(message, detail = '', type = 'info') {
     const statusDiv = document.getElementById('syncStatus');
@@ -8779,6 +8793,7 @@ function openSyncModal() {
     document.getElementById('syncProgressFill').style.width = '0%';
     document.getElementById('syncSummary').classList.add('hidden');
     document.getElementById('syncCloseBtn').classList.add('hidden');
+    document.getElementById('syncCancelBtn').classList.remove('hidden');
 }
 
 function closeSyncModal() {
@@ -8796,6 +8811,7 @@ async function startSync(fullSync = false) {
     }
     
     syncInProgress = true;
+    syncAbortController = new AbortController();
     openSyncModal();
     
     try {
@@ -8803,7 +8819,9 @@ async function startSync(fullSync = false) {
         addSyncStatus('Checking last sync date...', 'Determining what data to fetch');
         updateSyncProgress(5);
         
-        const response = await fetch(`/patients/{{ patient.id }}/sync-info`);
+        const response = await fetch(`/patients/{{ patient.id }}/sync-info`, {
+            signal: syncAbortController.signal
+        });
         const syncInfo = await response.json();
         
         if (syncInfo.last_record) {
@@ -8835,7 +8853,8 @@ async function startSync(fullSync = false) {
                 'X-Requested-With': 'XMLHttpRequest',
                 'Accept': 'application/json'
             },
-            body: formData
+            body: formData,
+            signal: syncAbortController.signal
         });
         
         updateSyncProgress(30);
@@ -8891,7 +8910,12 @@ async function startSync(fullSync = false) {
         
     } catch (error) {
         console.error('Sync error:', error);
-        addSyncStatus('Sync failed', error.message || 'An error occurred during sync', 'error');
+        if (error.name === 'AbortError') {
+            // Sync was cancelled - already handled
+        } else {
+            addSyncStatus('Sync failed', error.message || 'An error occurred during sync', 'error');
+        }
+        document.getElementById('syncCancelBtn').classList.add('hidden');
         document.getElementById('syncCloseBtn').classList.remove('hidden');
         syncInProgress = false;
     }
