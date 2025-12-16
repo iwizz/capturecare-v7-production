@@ -896,6 +896,11 @@ class CompanyAsset(db.Model):
     
     def to_dict(self):
         """Convert asset to dictionary for API responses"""
+        try:
+            created_by_name = self.created_by.full_name if self.created_by else 'Unknown'
+        except:
+            created_by_name = 'Unknown'
+        
         return {
             'id': self.id,
             'title': self.title,
@@ -908,7 +913,7 @@ class CompanyAsset(db.Model):
             'link_url': self.link_url,
             'tags': self.tags.split(',') if self.tags else [],
             'is_pinned': self.is_pinned,
-            'created_by': self.created_by.full_name if self.created_by else None,
+            'created_by': created_by_name,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

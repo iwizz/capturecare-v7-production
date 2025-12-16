@@ -152,6 +152,9 @@ def create_asset():
         db.session.add(asset)
         db.session.commit()
         
+        # Refresh to load relationships
+        db.session.refresh(asset)
+        
         logger.info(f"Company asset created: {title} by {current_user.username}")
         
         return jsonify({
@@ -161,7 +164,7 @@ def create_asset():
         })
         
     except Exception as e:
-        logger.error(f"Error creating company asset: {e}")
+        logger.error(f"Error creating company asset: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
