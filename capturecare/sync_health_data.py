@@ -47,13 +47,62 @@ class HealthDataSynchronizer:
                 logger.error(f"No Withings access token for patient {patient_id}")
                 return {'success': False, 'error': 'Withings not connected or token expired'}
             
-            # Use provided startdate, or calculate from last record or days_back
-            if startdate is None:
-                if full_sync:
-                    # For full sync, always go back 12 months
-                    startdate = datetime.now() - timedelta(days=365)
-                    logger.info(f"📊 FULL SYNC: Fetching last 12 months from {startdate.strftime('%Y-%m-%d')}")
-                else:
+            fetcher = WithingsDataFetcher(access_token)
+            
+            # FULL SYNC: Fetch month by month to avoid timeouts
+            if full_sync:
+                logger.info(f"🔄 FULL SYNC MODE: Fetching 12 months of data in monthly batches")
+                
+                total_measurements = 0
+                total_activities = 0
+                total_sleep = 0
+                total_devices = 0
+                
+                # Start from 12 months ago
+                current_start = datetime.now() - timedelta(days=365)
+                end_date = datetime.now()
+                
+                # Fetch month by month
+                month_num = 1
+                while current_start < end_date:
+                    # Calculate end of current month (or today if it's the last month)
+                    current_end = min(current_start + timedelta(days=30), end_date)
+                    
+                    logger.info(f"📅 Month {month_num}/12: Fetching from {current_start.strftime('%Y-%m-%d')} to {current_end.strftime('%Y-%m-%d')}")
+                    
+                    try:
+                        # Fetch data for this month
+                        month_data = fetcher.fetch_all_data(patient_id, startdate=current_start, days_back=30)
+                        
+                        total_measurements += len(month_data.get('measurements', []))
+                        total_activities += len(month_data.get('activities', []))
+                        total_sleep += len(month_data.get('sleep', []))
+                        if month_num == 1:
+                            total_devices += len(month_data.get('devices', []))
+                        
+                        logger.info(f"✅ Month {month_num}: +{len(month_data.get('measurements', []))} measurements, "
+                                  f"+{len(month_data.get('activities', []))} activities, "
+                                  f"+{len(month_data.get('sleep', []))} sleep records")
+                    except Exception as e:
+                        logger.error(f"❌ Error fetching month {month_num}: {e}")
+                    
+                    # Move to next month
+                    current_start = current_end
+                    month_num += 1
+                
+                logger.info(f"🎉 FULL SYNC COMPLETE: {total_measurements} measurements, {total_activities} activities, {total_sleep} sleep records")
+                
+                data = {
+                    'measurements': list(range(total_measurements)),  # Just for count
+                    'activities': list(range(total_activities)),
+                    'sleep': list(range(total_sleep)),
+                    'devices': list(range(total_devices))
+                }
+            
+            # INCREMENTAL SYNC: Normal logic
+            else:
+                # Use provided startdate, or calculate from last record or days_back
+                if startdate is None:
                     # Check for last record to determine start date
                     last_record = HealthData.query.filter_by(
                         patient_id=patient_id
@@ -68,11 +117,10 @@ class HealthDataSynchronizer:
                         # No records exist, use days_back from today
                         startdate = datetime.now() - timedelta(days=days_back)
                         logger.info(f"📊 No existing records found. Syncing last {days_back} days from {startdate.strftime('%Y-%m-%d')}")
-            else:
-                logger.info(f"📅 Using provided startdate: {startdate.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            fetcher = WithingsDataFetcher(access_token)
-            data = fetcher.fetch_all_data(patient_id, startdate=startdate, days_back=days_back)
+                else:
+                    logger.info(f"📅 Using provided startdate: {startdate.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                data = fetcher.fetch_all_data(patient_id, startdate=startdate, days_back=days_back)
             
             if self.google_sheets:
                 health_data = HealthData.query.filter(
