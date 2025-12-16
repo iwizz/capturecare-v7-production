@@ -4783,6 +4783,23 @@ async function saveTargetRanges() {
     </div>
 </div>
 
+<!-- Attachment Preview Modal -->
+<div id="attachmentPreviewModal" class="hidden fixed inset-0 bg-black bg-opacity-75 z-[60] flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-y-auto">
+        <div class="p-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white z-10">
+            <h3 id="attachmentPreviewTitle" class="text-xl font-bold text-gray-800 truncate">
+                <i class="fas fa-paperclip text-blue-600 mr-2"></i>
+            </h3>
+            <button onclick="closeAttachmentPreview()" class="text-gray-500 hover:text-gray-700 transition">
+                <i class="fas fa-times text-2xl"></i>
+            </button>
+        </div>
+        <div id="attachmentPreviewContent" class="p-6">
+            <!-- Content will be dynamically inserted -->
+        </div>
+    </div>
+</div>
+
 <!-- Custom Alert Modal -->
 <div id="customAlertModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-2xl max-w-md w-full transform transition-all">
@@ -5002,6 +5019,72 @@ function escapeHtml(text) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    function previewAttachment(noteId, filename, mimeType) {
+        const modal = document.getElementById('attachmentPreviewModal');
+        const modalTitle = document.getElementById('attachmentPreviewTitle');
+        const modalContent = document.getElementById('attachmentPreviewContent');
+        
+        modalTitle.textContent = filename;
+        
+        const attachmentUrl = `/api/notes/${noteId}/attachment`;
+        
+        // Check if it's an image
+        if (mimeType && mimeType.startsWith('image/')) {
+            modalContent.innerHTML = `
+                <div class="flex justify-center items-center bg-gray-100 rounded-lg p-4">
+                    <img src="${attachmentUrl}" alt="${filename}" class="max-w-full max-h-[70vh] object-contain rounded shadow-lg">
+                </div>
+                <div class="mt-4 flex gap-2 justify-center">
+                    <a href="${attachmentUrl}" download class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold">
+                        <i class="fas fa-download mr-2"></i>Download
+                    </a>
+                    <a href="${attachmentUrl}" target="_blank" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold">
+                        <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
+                    </a>
+                </div>
+            `;
+        }
+        // Check if it's a PDF
+        else if (mimeType === 'application/pdf') {
+            modalContent.innerHTML = `
+                <div class="bg-gray-100 rounded-lg overflow-hidden">
+                    <iframe src="${attachmentUrl}" class="w-full h-[70vh] border-0"></iframe>
+                </div>
+                <div class="mt-4 flex gap-2 justify-center">
+                    <a href="${attachmentUrl}" download class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold">
+                        <i class="fas fa-download mr-2"></i>Download
+                    </a>
+                    <a href="${attachmentUrl}" target="_blank" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold">
+                        <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
+                    </a>
+                </div>
+            `;
+        }
+        // For other file types, just show download option
+        else {
+            modalContent.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-file text-6xl text-gray-400 mb-4"></i>
+                    <p class="text-gray-600 mb-6">Preview not available for this file type</p>
+                    <div class="flex gap-2 justify-center">
+                        <a href="${attachmentUrl}" download class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-semibold">
+                            <i class="fas fa-download mr-2"></i>Download File
+                        </a>
+                        <a href="${attachmentUrl}" target="_blank" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold">
+                            <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
+                        </a>
+                    </div>
+                </div>
+            `;
+        }
+        
+        modal.classList.remove('hidden');
+    }
+
+    function closeAttachmentPreview() {
+        document.getElementById('attachmentPreviewModal').classList.add('hidden');
+    }
+
 async function loadNotes() {
     try {
         const response = await fetch(`/api/patients/{{ patient.id }}/notes`);
@@ -5094,12 +5177,12 @@ async function loadNotes() {
                         ` : ''}
                         ${note.attachment_filename ? `
                             <div class="mt-2 flex items-center gap-2 text-sm">
-                                <a href="/api/notes/${note.id}/attachment" target="_blank" 
-                                   class="text-blue-600 hover:text-blue-800 flex items-center gap-2">
-                                    <i class="fas fa-file-download"></i>
-                                    <span>${note.attachment_filename}</span>
+                                <button onclick="previewAttachment(${note.id}, '${note.attachment_filename}', '${note.attachment_type}')" 
+                                   class="text-blue-600 hover:text-blue-800 flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition">
+                                    <i class="fas fa-eye"></i>
+                                    <span>Preview: ${note.attachment_filename}</span>
                                     <span class="text-xs text-gray-500">(${formatFileSize(note.attachment_size)})</span>
-                                </a>
+                                </button>
                             </div>
                         ` : ''}
                     </div>
