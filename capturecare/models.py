@@ -305,6 +305,12 @@ class PatientNote(db.Model):
     note_type = db.Column(db.String(50), default='manual')  # manual, ai_report, soap, clinical, call_summary, heygen_video
     author = db.Column(db.String(100), nullable=True)  # Who created the note
     
+    # File attachment fields
+    attachment_filename = db.Column(db.String(255), nullable=True)  # Original filename
+    attachment_path = db.Column(db.String(500), nullable=True)  # Stored file path
+    attachment_type = db.Column(db.String(50), nullable=True)  # MIME type (image/pdf/etc)
+    attachment_size = db.Column(db.Integer, nullable=True)  # File size in bytes
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

@@ -2,6 +2,11 @@
 
 {% block title %}Communications - CaptureCare{% endblock %}
 
+{% block head %}
+<!-- Twilio Video SDK -->
+<script src="https://sdk.twilio.com/js/video/releases/2.27.0/twilio-video.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto px-4 py-8">
     <!-- Page Header -->
@@ -10,7 +15,30 @@
             <i class="fas fa-comments mr-3 text-brand-bright-teal"></i>
             Communications
         </h1>
-        <p class="text-gray-600">View all SMS and email correspondence with patients</p>
+        <p class="text-gray-600">View all SMS, email, and call correspondence with patients</p>
+    </div>
+
+    <!-- New Communication Actions -->
+    <div class="bg-gradient-to-r from-brand-bright-teal to-brand-teal rounded-lg shadow-lg p-6 mb-6">
+        <div class="flex items-center justify-between">
+            <div class="text-white">
+                <h2 class="text-xl font-bold mb-1">
+                    <i class="fas fa-bolt mr-2"></i>Quick Actions
+                </h2>
+                <p class="text-sm opacity-90">Initiate communication with patients</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="openSmsModal()" class="px-6 py-3 bg-white text-brand-bright-teal rounded-lg hover:bg-gray-100 transition font-semibold shadow-md">
+                    <i class="fas fa-sms mr-2"></i>Send SMS
+                </button>
+                <button onclick="openPhoneCallModal()" class="px-6 py-3 bg-white text-brand-bright-teal rounded-lg hover:bg-gray-100 transition font-semibold shadow-md">
+                    <i class="fas fa-phone mr-2"></i>Make Call
+                </button>
+                <button onclick="openVideoCallModal()" class="px-6 py-3 bg-white text-brand-bright-teal rounded-lg hover:bg-gray-100 transition font-semibold shadow-md">
+                    <i class="fas fa-video mr-2"></i>Video Call
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Filters -->
@@ -107,6 +135,208 @@
             <button onclick="loadMore()" class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
                 <i class="fas fa-chevron-down mr-2"></i>Load More
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- SMS Modal -->
+<div id="smsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+        <div class="p-6 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-sms mr-2 text-brand-bright-teal"></i>Send SMS
+                </h3>
+                <button onclick="closeSmsModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+        <form id="smsForm" onsubmit="sendSmsMessage(event)" class="p-6">
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
+                <select id="smsPatientSelect" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">Loading patients...</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
+                <input type="tel" id="smsPhone" required placeholder="+61 400 000 000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Message</label>
+                <textarea id="smsMessage" required rows="4" placeholder="Type your message here..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent"></textarea>
+                <p class="text-xs text-gray-500 mt-1">
+                    <span id="smsCharCount">0</span>/160 characters
+                </p>
+            </div>
+            <div class="flex gap-3">
+                <button type="button" onclick="closeSmsModal()" class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-semibold">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 px-4 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-paper-plane mr-2"></i>Send SMS
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Phone Call Modal -->
+<div id="phoneCallModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+        <div class="p-6 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-phone mr-2 text-brand-bright-teal"></i>Make Phone Call
+                </h3>
+                <button onclick="closePhoneCallModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+        <div class="p-6">
+            <!-- Call Setup View -->
+            <div id="callSetup" class="call-view">
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
+                    <select id="callPatientSelect" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                        <option value="">Loading patients...</option>
+                    </select>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
+                    <input type="tel" id="callPhone" required placeholder="+61 400 000 000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                </div>
+                <button onclick="initiatePhoneCall()" class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold">
+                    <i class="fas fa-phone-alt mr-2"></i>Start Call
+                </button>
+            </div>
+            
+            <!-- Active Call View -->
+            <div id="activeCall" class="call-view hidden">
+                <div class="text-center mb-6">
+                    <div class="inline-block p-6 bg-green-100 rounded-full mb-4">
+                        <i class="fas fa-phone-alt text-5xl text-green-600"></i>
+                    </div>
+                    <h4 class="text-xl font-bold text-gray-800 mb-1" id="callPatientName">Calling...</h4>
+                    <p class="text-gray-600" id="callPhoneNumber"></p>
+                    <p class="text-2xl font-bold text-brand-bright-teal mt-4" id="callDuration">00:00</p>
+                    <p class="text-sm text-gray-500" id="callStatus">Connecting...</p>
+                </div>
+                <div class="flex gap-3 mb-4">
+                    <button onclick="toggleMute()" class="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
+                        <i id="muteIcon" class="fas fa-microphone mr-2"></i>
+                        <span id="muteText">Mute</span>
+                    </button>
+                    <button onclick="toggleHold()" class="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
+                        <i id="holdIcon" class="fas fa-pause mr-2"></i>
+                        <span id="holdText">Hold</span>
+                    </button>
+                </div>
+                <button onclick="endPhoneCall()" class="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold">
+                    <i class="fas fa-phone-slash mr-2"></i>End Call
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Video Call Modal -->
+<div id="videoCallModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
+            <div class="flex justify-between items-center">
+                <h3 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-video mr-2 text-brand-bright-teal"></i>Video Call
+                </h3>
+                <button onclick="closeVideoCallModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Video Setup View -->
+        <div id="videoSetup" class="p-6">
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
+                <select id="videoPatientSelect" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-bright-teal focus:border-transparent">
+                    <option value="">Loading patients...</option>
+                </select>
+            </div>
+            <div class="mb-6">
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p class="text-sm text-blue-800">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        A video room will be created and you can send the link to your patient via SMS.
+                    </p>
+                </div>
+            </div>
+            <button onclick="startVideoCallSession()" class="w-full px-4 py-3 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                <i class="fas fa-video mr-2"></i>Start Video Call
+            </button>
+        </div>
+        
+        <!-- Active Video Call View -->
+        <div id="activeVideoCall" class="hidden">
+            <!-- Video Grid -->
+            <div class="bg-gray-900 p-4">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <!-- Remote Participant Video -->
+                    <div class="relative bg-gray-800 rounded-lg overflow-hidden" style="height: 300px;">
+                        <div id="remoteVideo" class="w-full h-full flex items-center justify-center text-white">
+                            <div class="text-center">
+                                <i class="fas fa-user-circle text-6xl mb-2 text-gray-600"></i>
+                                <p class="text-sm text-gray-400">Waiting for patient...</p>
+                            </div>
+                        </div>
+                        <div class="absolute bottom-2 left-2 bg-black bg-opacity-70 px-3 py-1 rounded text-white text-sm">
+                            <span id="remoteParticipantName">Patient</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Local Video (You) -->
+                    <div class="relative bg-gray-800 rounded-lg overflow-hidden" style="height: 300px;">
+                        <div id="localVideo" class="w-full h-full"></div>
+                        <div class="absolute bottom-2 left-2 bg-black bg-opacity-70 px-3 py-1 rounded text-white text-sm">
+                            You
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Video Controls -->
+                <div class="flex items-center justify-center gap-4 mb-4">
+                    <button onclick="toggleVideoMute()" class="p-4 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition">
+                        <i id="videoMuteIcon" class="fas fa-microphone text-xl"></i>
+                    </button>
+                    <button onclick="toggleVideoCamera()" class="p-4 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition">
+                        <i id="videoCameraIcon" class="fas fa-video text-xl"></i>
+                    </button>
+                    <button onclick="endVideoCall()" class="p-4 bg-red-600 text-white rounded-full hover:bg-red-700 transition">
+                        <i class="fas fa-phone-slash text-xl"></i>
+                    </button>
+                </div>
+                
+                <!-- Call Info -->
+                <div class="text-center text-white">
+                    <p class="text-2xl font-bold mb-1" id="videoCallDuration">00:00</p>
+                    <p class="text-sm text-gray-400" id="videoCallStatus">Connected</p>
+                </div>
+            </div>
+            
+            <!-- Send Invite Section -->
+            <div class="p-6 bg-gray-50 border-t border-gray-200">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Patient Join Link</label>
+                <div class="flex gap-2">
+                    <input type="text" id="videoRoomLink" readonly class="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-white">
+                    <button onclick="copyVideoLink()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                    <button onclick="sendVideoLinkSms()" class="px-4 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                        <i class="fas fa-sms mr-1"></i> Send SMS
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -492,6 +722,478 @@ document.getElementById('messageModal').addEventListener('click', function(e) {
     if (e.target === this) {
         closeMessageModal();
     }
+});
+
+// ==================== NEW COMMUNICATION FEATURES ====================
+
+// Global variables for calls
+let currentCallSid = null;
+let callTimer = null;
+let callStartTime = null;
+let isMuted = false;
+let isOnHold = false;
+let videoRoom = null;
+let videoCallTimer = null;
+let videoCallStartTime = null;
+let isVideoMuted = false;
+let isVideoCameraOff = false;
+let localVideoTrack = null;
+let localAudioTrack = null;
+let currentPatientId = null;
+let currentPatientPhone = null;
+
+// Load patients when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadPatients();
+});
+
+// ==================== PATIENT LOADING ====================
+
+async function loadPatients() {
+    try {
+        const response = await fetch('/api/patients/list');
+        const data = await response.json();
+        
+        if (data.success) {
+            const patients = data.patients;
+            const options = '<option value="">Select a patient...</option>' + 
+                patients.map(p => `<option value="${p.id}" data-phone="${p.phone || ''}">${p.name}${p.phone ? ' (' + p.phone + ')' : ''}</option>`).join('');
+            
+            document.getElementById('smsPatientSelect').innerHTML = options;
+            document.getElementById('callPatientSelect').innerHTML = options;
+            document.getElementById('videoPatientSelect').innerHTML = options;
+            
+            // Add change event listeners to auto-fill phone numbers
+            document.getElementById('smsPatientSelect').addEventListener('change', function(e) {
+                const phone = e.target.selectedOptions[0]?.getAttribute('data-phone');
+                if (phone) document.getElementById('smsPhone').value = phone;
+            });
+            
+            document.getElementById('callPatientSelect').addEventListener('change', function(e) {
+                const phone = e.target.selectedOptions[0]?.getAttribute('data-phone');
+                if (phone) document.getElementById('callPhone').value = phone;
+            });
+        }
+    } catch (error) {
+        console.error('Error loading patients:', error);
+    }
+}
+
+// ==================== SMS MODAL ====================
+
+function openSmsModal() {
+    document.getElementById('smsModal').classList.remove('hidden');
+    document.getElementById('smsForm').reset();
+}
+
+function closeSmsModal() {
+    document.getElementById('smsModal').classList.add('hidden');
+}
+
+// SMS character counter
+document.addEventListener('DOMContentLoaded', function() {
+    const smsMessageEl = document.getElementById('smsMessage');
+    if (smsMessageEl) {
+        smsMessageEl.addEventListener('input', function() {
+            document.getElementById('smsCharCount').textContent = this.value.length;
+        });
+    }
+});
+
+async function sendSmsMessage(event) {
+    event.preventDefault();
+    
+    const patientId = document.getElementById('smsPatientSelect').value;
+    const phone = document.getElementById('smsPhone').value;
+    const message = document.getElementById('smsMessage').value;
+    
+    if (!patientId || !phone || !message) {
+        alert('Please fill in all fields');
+        return;
+    }
+    
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+    
+    try {
+        const response = await fetch(`/api/patients/${patientId}/send-sms`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({phone, message})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ SMS sent successfully!');
+            closeSmsModal();
+            loadCorrespondence(); // Reload to show new message
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error sending SMS:', error);
+        alert('❌ Error sending SMS: ' + error.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Send SMS';
+    }
+}
+
+// ==================== PHONE CALL MODAL ====================
+
+function openPhoneCallModal() {
+    document.getElementById('phoneCallModal').classList.remove('hidden');
+    document.getElementById('callSetup').classList.remove('hidden');
+    document.getElementById('activeCall').classList.add('hidden');
+}
+
+function closePhoneCallModal() {
+    if (currentCallSid && confirm('End the current call?')) {
+        endPhoneCall();
+    }
+    document.getElementById('phoneCallModal').classList.add('hidden');
+    if (callTimer) clearInterval(callTimer);
+}
+
+async function initiatePhoneCall() {
+    const patientId = document.getElementById('callPatientSelect').value;
+    const phone = document.getElementById('callPhone').value;
+    
+    if (!patientId || !phone) {
+        alert('Please select a patient and enter phone number');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/patients/${patientId}/initiate-call`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({phone})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentCallSid = data.call_sid;
+            currentPatientId = patientId;
+            currentPatientPhone = phone;
+            
+            // Update UI
+            document.getElementById('callSetup').classList.add('hidden');
+            document.getElementById('activeCall').classList.remove('hidden');
+            
+            const patientName = document.getElementById('callPatientSelect').selectedOptions[0].text;
+            document.getElementById('callPatientName').textContent = patientName;
+            document.getElementById('callPhoneNumber').textContent = phone;
+            document.getElementById('callStatus').textContent = data.status || 'Connecting...';
+            
+            // Start call timer
+            callStartTime = Date.now();
+            callTimer = setInterval(updateCallDuration, 1000);
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error initiating call:', error);
+        alert('❌ Error initiating call: ' + error.message);
+    }
+}
+
+function updateCallDuration() {
+    if (!callStartTime) return;
+    const seconds = Math.floor((Date.now() - callStartTime) / 1000);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    document.getElementById('callDuration').textContent = 
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function toggleMute() {
+    // Note: Actual muting would require Twilio Voice SDK on client side
+    // This is a UI state toggle - full implementation would require more integration
+    isMuted = !isMuted;
+    document.getElementById('muteIcon').className = isMuted ? 'fas fa-microphone-slash mr-2' : 'fas fa-microphone mr-2';
+    document.getElementById('muteText').textContent = isMuted ? 'Unmute' : 'Mute';
+}
+
+function toggleHold() {
+    // Note: Actual hold would require Twilio Voice SDK
+    isOnHold = !isOnHold;
+    document.getElementById('holdIcon').className = isOnHold ? 'fas fa-play mr-2' : 'fas fa-pause mr-2';
+    document.getElementById('holdText').textContent = isOnHold ? 'Resume' : 'Hold';
+}
+
+async function endPhoneCall() {
+    if (!currentCallSid) return;
+    
+    try {
+        const response = await fetch(`/api/patients/${currentPatientId}/end-call`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({call_sid: currentCallSid})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success || data.message) {
+            alert('✅ Call ended');
+            closePhoneCallModal();
+            loadCorrespondence(); // Reload to show call log
+        }
+    } catch (error) {
+        console.error('Error ending call:', error);
+    }
+    
+    // Cleanup
+    if (callTimer) clearInterval(callTimer);
+    currentCallSid = null;
+    callStartTime = null;
+    isMuted = false;
+    isOnHold = false;
+}
+
+// ==================== VIDEO CALL MODAL ====================
+
+function openVideoCallModal() {
+    document.getElementById('videoCallModal').classList.remove('hidden');
+    document.getElementById('videoSetup').classList.remove('hidden');
+    document.getElementById('activeVideoCall').classList.add('hidden');
+}
+
+function closeVideoCallModal() {
+    if (videoRoom && confirm('End the video call?')) {
+        endVideoCall();
+    }
+    document.getElementById('videoCallModal').classList.add('hidden');
+}
+
+async function startVideoCallSession() {
+    const patientId = document.getElementById('videoPatientSelect').value;
+    
+    if (!patientId) {
+        alert('Please select a patient');
+        return;
+    }
+    
+    currentPatientId = patientId;
+    
+    try {
+        // Get video token
+        const response = await fetch(`/api/patients/${patientId}/video-token`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('❌ Error: ' + data.error);
+            return;
+        }
+        
+        // Create video room link
+        const roomUrl = (window.location.origin + '/video-room/' + data.room_name);
+        document.getElementById('videoRoomLink').value = roomUrl;
+        
+        // Show active video call view
+        document.getElementById('videoSetup').classList.add('hidden');
+        document.getElementById('activeVideoCall').classList.remove('hidden');
+        
+        // Connect to Twilio Video
+        if (typeof Twilio === 'undefined' || !Twilio.Video) {
+            alert('⚠️ Twilio Video SDK not loaded. Please refresh the page.');
+            return;
+        }
+        
+        const tracks = await Twilio.Video.createLocalTracks({
+            audio: true,
+            video: { width: 640, height: 480 }
+        });
+        
+        localAudioTrack = tracks.find(track => track.kind === 'audio');
+        localVideoTrack = tracks.find(track => track.kind === 'video');
+        
+        videoRoom = await Twilio.Video.connect(data.token, {
+            name: data.room_name,
+            tracks: tracks
+        });
+        
+        console.log('✅ Connected to video room:', videoRoom.name);
+        
+        // Attach local video
+        if (localVideoTrack) {
+            const videoElement = localVideoTrack.attach();
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            videoElement.style.objectFit = 'cover';
+            document.getElementById('localVideo').appendChild(videoElement);
+        }
+        
+        // Start call timer
+        videoCallStartTime = Date.now();
+        videoCallTimer = setInterval(updateVideoCallDuration, 1000);
+        
+        // Handle participant connections
+        videoRoom.on('participantConnected', participant => {
+            console.log('Participant connected:', participant.identity);
+            handleRemoteParticipant(participant);
+        });
+        
+        videoRoom.participants.forEach(handleRemoteParticipant);
+        
+    } catch (error) {
+        console.error('Error starting video call:', error);
+        alert('❌ Error starting video call: ' + error.message);
+    }
+}
+
+function handleRemoteParticipant(participant) {
+    document.getElementById('remoteParticipantName').textContent = participant.identity;
+    
+    participant.on('trackSubscribed', track => {
+        if (track.kind === 'video') {
+            const videoElement = track.attach();
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            videoElement.style.objectFit = 'cover';
+            const remoteDiv = document.getElementById('remoteVideo');
+            remoteDiv.innerHTML = '';
+            remoteDiv.appendChild(videoElement);
+        }
+    });
+}
+
+function updateVideoCallDuration() {
+    if (!videoCallStartTime) return;
+    const seconds = Math.floor((Date.now() - videoCallStartTime) / 1000);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    document.getElementById('videoCallDuration').textContent = 
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function toggleVideoMute() {
+    if (!localAudioTrack) return;
+    
+    if (isVideoMuted) {
+        localAudioTrack.enable();
+        document.getElementById('videoMuteIcon').className = 'fas fa-microphone text-xl';
+    } else {
+        localAudioTrack.disable();
+        document.getElementById('videoMuteIcon').className = 'fas fa-microphone-slash text-xl';
+    }
+    isVideoMuted = !isVideoMuted;
+}
+
+function toggleVideoCamera() {
+    if (!localVideoTrack) return;
+    
+    if (isVideoCameraOff) {
+        localVideoTrack.enable();
+        document.getElementById('videoCameraIcon').className = 'fas fa-video text-xl';
+    } else {
+        localVideoTrack.disable();
+        document.getElementById('videoCameraIcon').className = 'fas fa-video-slash text-xl';
+    }
+    isVideoCameraOff = !isVideoCameraOff;
+}
+
+async function endVideoCall() {
+    if (videoRoom) {
+        videoRoom.disconnect();
+        videoRoom = null;
+    }
+    
+    if (videoCallTimer) {
+        clearInterval(videoCallTimer);
+        videoCallTimer = null;
+    }
+    
+    // Log the video call
+    if (currentPatientId && videoCallStartTime) {
+        const duration = Math.floor((Date.now() - videoCallStartTime) / 1000);
+        try {
+            await fetch(`/api/patients/${currentPatientId}/log-video-call`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({duration})
+            });
+        } catch (error) {
+            console.error('Error logging video call:', error);
+        }
+    }
+    
+    closeVideoCallModal();
+    loadCorrespondence(); // Reload to show video call log
+    
+    // Reset states
+    videoCallStartTime = null;
+    isVideoMuted = false;
+    isVideoCameraOff = false;
+    localAudioTrack = null;
+    localVideoTrack = null;
+}
+
+function copyVideoLink() {
+    const input = document.getElementById('videoRoomLink');
+    input.select();
+    document.execCommand('copy');
+    alert('✅ Link copied to clipboard!');
+}
+
+async function sendVideoLinkSms() {
+    if (!currentPatientId) return;
+    
+    const roomLink = document.getElementById('videoRoomLink').value;
+    const phone = currentPatientPhone || document.getElementById('callPhone').value;
+    
+    if (!phone) {
+        alert('⚠️ Patient phone number not available');
+        return;
+    }
+    
+    const message = `Hi! Please join the video consultation using this link: ${roomLink}`;
+    
+    try {
+        const response = await fetch(`/api/patients/${currentPatientId}/send-sms`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({phone, message})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('✅ Video link sent via SMS!');
+        } else {
+            alert('❌ Error sending SMS: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error sending video link SMS:', error);
+        alert('❌ Error sending SMS');
+    }
+}
+
+// Close modals on ESC key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeSmsModal();
+        if (!currentCallSid) closePhoneCallModal();
+        if (!videoRoom) closeVideoCallModal();
+    }
+});
+
+// Close modals on background click
+['smsModal', 'phoneCallModal', 'videoCallModal'].forEach(modalId => {
+    document.getElementById(modalId)?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            if (modalId === 'smsModal') closeSmsModal();
+            else if (modalId === 'phoneCallModal' && !currentCallSid) closePhoneCallModal();
+            else if (modalId === 'videoCallModal' && !videoRoom) closeVideoCallModal();
+        }
+    });
 });
 </script>
 {% endblock %}

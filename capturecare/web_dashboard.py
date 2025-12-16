@@ -1352,6 +1352,27 @@ def api_get_patient(patient_id):
         logger.error(f"Error getting patient {patient_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/api/patients/list', methods=['GET'])
+@optional_login_required
+def api_list_patients():
+    """Get list of all patients for dropdowns"""
+    try:
+        # Get all patients, ordered by name
+        patients = Patient.query.order_by(Patient.first_name, Patient.last_name).all()
+        
+        return jsonify({
+            'success': True,
+            'patients': [{
+                'id': p.id,
+                'name': f"{p.first_name} {p.last_name}",
+                'phone': p.phone or p.mobile,
+                'email': p.email
+            } for p in patients]
+        })
+    except Exception as e:
+        logger.error(f"Error getting patient list: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/api/patients/search')
 @optional_login_required
 def api_search_patients():
@@ -1921,7 +1942,11 @@ def get_patient_notes(patient_id):
                 'author': note.author or 'System',
                 'created_at': note.created_at.isoformat(),
                 'updated_at': note.updated_at.isoformat(),
-                'appointment_id': note.appointment_id
+                'appointment_id': note.appointment_id,
+                'attachment_filename': note.attachment_filename,
+                'attachment_path': note.attachment_path,
+                'attachment_type': note.attachment_type,
+                'attachment_size': note.attachment_size
             }
             
             # Include appointment details if linked
@@ -1945,43 +1970,116 @@ def get_patient_notes(patient_id):
 @app.route('/api/patients/<int:patient_id>/notes', methods=['POST'])
 @optional_login_required
 def create_patient_note(patient_id):
-    """Create a new patient note"""
+    """Create a new patient note (supports multipart/form-data for file uploads)"""
     try:
-        data = request.get_json()
-        
-        # Extract subject from first line if not provided
-        note_text = data.get('note_text', '')
-        subject = data.get('subject', '')
-        if not subject and note_text:
-            # Use first line as subject (max 200 chars)
-            first_line = note_text.split('\n')[0].strip()
-            subject = first_line[:200] if len(first_line) > 200 else first_line
-        
-        note = PatientNote(
-            patient_id=patient_id,
-            appointment_id=data.get('appointment_id'),
-            subject=subject,
-            note_text=note_text,
-            note_type=data.get('note_type', 'manual'),
-            author=data.get('author', 'Admin')
-        )
-        
-        db.session.add(note)
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'note': {
-                'id': note.id,
-                'subject': note.subject,
-                'note_text': note.note_text,
-                'note_type': note.note_type,
-                'author': note.author,
-                'created_at': note.created_at.isoformat(),
-                'updated_at': note.updated_at.isoformat(),
-                'appointment_id': note.appointment_id
-            }
-        })
+        # Check if this is a multipart request (file upload)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            # Handle file upload
+            note_text = request.form.get('note_text', '')
+            subject = request.form.get('subject', '')
+            note_type = request.form.get('note_type', 'manual')
+            author = request.form.get('author', 'Admin')
+            appointment_id = request.form.get('appointment_id')
+            
+            # Extract subject from first line if not provided
+            if not subject and note_text:
+                first_line = note_text.split('\n')[0].strip()
+                subject = first_line[:200] if len(first_line) > 200 else first_line
+            
+            note = PatientNote(
+                patient_id=patient_id,
+                appointment_id=int(appointment_id) if appointment_id and appointment_id != 'null' else None,
+                subject=subject,
+                note_text=note_text,
+                note_type=note_type,
+                author=author
+            )
+            
+            # Handle file upload if present
+            if 'attachment' in request.files:
+                file = request.files['attachment']
+                if file and file.filename:
+                    # Secure the filename
+                    from werkzeug.utils import secure_filename
+                    filename = secure_filename(file.filename)
+                    
+                    # Create uploads directory if it doesn't exist
+                    uploads_dir = os.path.join(app.root_path, 'static', 'uploads', 'notes')
+                    os.makedirs(uploads_dir, exist_ok=True)
+                    
+                    # Generate unique filename
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    unique_filename = f"{patient_id}_{timestamp}_{filename}"
+                    file_path = os.path.join(uploads_dir, unique_filename)
+                    
+                    # Save file
+                    file.save(file_path)
+                    
+                    # Store relative path and metadata
+                    note.attachment_filename = filename
+                    note.attachment_path = f"uploads/notes/{unique_filename}"
+                    note.attachment_type = file.content_type or 'application/octet-stream'
+                    note.attachment_size = os.path.getsize(file_path)
+                    
+                    logger.info(f"File uploaded: {filename} ({note.attachment_size} bytes)")
+            
+            db.session.add(note)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'note': {
+                    'id': note.id,
+                    'subject': note.subject,
+                    'note_text': note.note_text,
+                    'note_type': note.note_type,
+                    'author': note.author,
+                    'created_at': note.created_at.isoformat(),
+                    'updated_at': note.updated_at.isoformat(),
+                    'appointment_id': note.appointment_id,
+                    'attachment_filename': note.attachment_filename,
+                    'attachment_path': note.attachment_path,
+                    'attachment_type': note.attachment_type,
+                    'attachment_size': note.attachment_size
+                }
+            })
+        else:
+            # Handle JSON request (legacy, no file)
+            data = request.get_json()
+            
+            # Extract subject from first line if not provided
+            note_text = data.get('note_text', '')
+            subject = data.get('subject', '')
+            if not subject and note_text:
+                # Use first line as subject (max 200 chars)
+                first_line = note_text.split('\n')[0].strip()
+                subject = first_line[:200] if len(first_line) > 200 else first_line
+            
+            note = PatientNote(
+                patient_id=patient_id,
+                appointment_id=data.get('appointment_id'),
+                subject=subject,
+                note_text=note_text,
+                note_type=data.get('note_type', 'manual'),
+                author=data.get('author', 'Admin')
+            )
+            
+            db.session.add(note)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'note': {
+                    'id': note.id,
+                    'subject': note.subject,
+                    'note_text': note.note_text,
+                    'note_type': note.note_type,
+                    'author': note.author,
+                    'created_at': note.created_at.isoformat(),
+                    'updated_at': note.updated_at.isoformat(),
+                    'appointment_id': note.appointment_id
+                }
+            })
     except Exception as e:
         logger.error(f"Error creating patient note: {e}")
         db.session.rollback()
@@ -2023,9 +2121,21 @@ def update_patient_note(note_id):
 @app.route('/api/notes/<int:note_id>', methods=['DELETE'])
 @optional_login_required
 def delete_patient_note(note_id):
-    """Delete a patient note"""
+    """Delete a patient note and its attachment"""
     try:
         note = PatientNote.query.get_or_404(note_id)
+        
+        # Delete attached file if it exists
+        if note.attachment_path:
+            try:
+                file_path = os.path.join(app.root_path, 'static', note.attachment_path)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"Deleted attachment file: {file_path}")
+            except Exception as file_error:
+                logger.warning(f"Could not delete attachment file: {file_error}")
+                # Continue with note deletion even if file deletion fails
+        
         db.session.delete(note)
         db.session.commit()
         
@@ -2034,6 +2144,35 @@ def delete_patient_note(note_id):
         logger.error(f"Error deleting patient note: {e}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/notes/<int:note_id>/attachment', methods=['GET'])
+@optional_login_required
+def download_note_attachment(note_id):
+    """Download or view note attachment"""
+    try:
+        note = PatientNote.query.get_or_404(note_id)
+        
+        if not note.attachment_path or not note.attachment_filename:
+            return jsonify({'success': False, 'error': 'No attachment found'}), 404
+        
+        file_path = os.path.join(app.root_path, 'static', note.attachment_path)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Attachment file not found'}), 404
+        
+        # Determine if we should display inline (images, PDFs) or force download
+        inline_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']
+        as_attachment = note.attachment_type not in inline_types
+        
+        return send_file(
+            file_path,
+            mimetype=note.attachment_type or 'application/octet-stream',
+            as_attachment=as_attachment,
+            download_name=note.attachment_filename
+        )
+    except Exception as e:
+        logger.error(f"Error downloading attachment: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/notes/update-subjects', methods=['POST'])
 @optional_login_required
