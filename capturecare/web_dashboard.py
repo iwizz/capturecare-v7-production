@@ -1,20 +1,20 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash, Response, send_file
 from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 from sqlalchemy import or_
-from models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth, OnboardingChecklist
-from config import Config
-from withings_auth import WithingsAuthManager
-from sync_health_data import HealthDataSynchronizer
-from patient_matcher import ClinikoIntegration
-from ai_health_reporter import AIHealthReporter
-from email_sender import EmailSender
-from calendar_sync import GoogleCalendarSync
-from notification_service import NotificationService
-from heygen_service import HeyGenService
-from stripe_service import StripeService
+from .models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth, OnboardingChecklist
+from .config import Config
+from .withings_auth import WithingsAuthManager
+from .sync_health_data import HealthDataSynchronizer
+from .patient_matcher import ClinikoIntegration
+from .ai_health_reporter import AIHealthReporter
+from .email_sender import EmailSender
+from .calendar_sync import GoogleCalendarSync
+from .notification_service import NotificationService
+from .heygen_service import HeyGenService
+from .stripe_service import StripeService
 import logging
 import os
 import json
@@ -24,14 +24,14 @@ import jwt
 import secrets
 from functools import wraps
 from flask_migrate import Migrate
-from extensions import cache
-from blueprints.admin import admin_bp
-from blueprints.api import api_bp
-from blueprints.auth import auth_bp
-from blueprints.patients import patients_bp
-from blueprints.patient_portal import patient_portal_bp
-from blueprints.appointments import appointments_bp
-from blueprints.leads import leads_bp
+from .extensions import cache
+from .blueprints.admin import admin_bp
+from .blueprints.api import api_bp
+from .blueprints.auth import auth_bp
+from .blueprints.patients import patients_bp
+from .blueprints.patient_portal import patient_portal_bp
+from .blueprints.appointments import appointments_bp
+from .blueprints.leads import leads_bp
 
 
 # Configure logging with Australian Eastern time
@@ -313,7 +313,7 @@ with app.app_context():
         traceback.print_exc()
 
 # Add Jinja2 template filters for Australian timezone formatting
-from tz_utils import to_local, format_local
+from .tz_utils import to_local, format_local
 
 @app.template_filter('aest')
 def aest_filter(dt, format='%Y-%m-%d %H:%M'):
@@ -2261,7 +2261,7 @@ def send_patient_sms(patient_id):
             return jsonify({'success': False, 'error': 'Phone and message are required'}), 400
         
         # Send SMS using notification service
-        from notification_service import NotificationService
+        from .notification_service import NotificationService
         notif_service = NotificationService()
         
         # Pass patient_id and user_id so NotificationService can log correspondence
@@ -2430,7 +2430,7 @@ Download: {app_store_url}
         sms_error = None
         if 'sms' in send_methods and (patient.mobile or patient.phone):
             try:
-                from notification_service import NotificationService
+                from .notification_service import NotificationService
                 notif_service = NotificationService()
                 phone = patient.mobile or patient.phone
                 sms_message = f"CaptureCare App Invite: Download the app and sign in with email {patient.email} and password {temp_password}. Change password after login."
@@ -2455,7 +2455,7 @@ Download: {app_store_url}
         if 'email' in send_methods:
             try:
                 # Use NotificationService which handles email sending properly
-                from notification_service import NotificationService
+                from .notification_service import NotificationService
                 notif_service = NotificationService()
                 
                 # Render branded HTML template
@@ -2586,7 +2586,7 @@ def initiate_patient_call(patient_id):
             return jsonify({'success': False, 'error': 'Phone number is required'}), 400
         
         # Initiate call using notification service
-        from notification_service import NotificationService
+        from .notification_service import NotificationService
         notif_service = NotificationService()
         
         result = notif_service.initiate_call(
@@ -2629,7 +2629,7 @@ def end_patient_call(patient_id):
         
         # First, terminate the call in Twilio
         try:
-            from notification_service import NotificationService
+            from .notification_service import NotificationService
             notif_service = NotificationService()
             
             if notif_service.twilio_configured:
@@ -2690,7 +2690,7 @@ def get_call_status(patient_id, call_sid):
         patient = Patient.query.get_or_404(patient_id)
         
         # Get Twilio client
-        from notification_service import NotificationService
+        from .notification_service import NotificationService
         notif_service = NotificationService()
         
         if not notif_service.twilio_configured:
@@ -2720,6 +2720,10 @@ def generate_video_token(patient_id):
     """Generate Twilio Video access token for practitioner"""
     try:
         patient = Patient.query.get_or_404(patient_id)
+        
+        # Get optional room_name from request body
+        data = request.get_json() or {}
+        existing_room_name = data.get('room_name')
         
         # Get credentials - Prioritize Secret Manager (Cloud) over .env file (local)
         # Only reload .env file if NOT using Secret Manager (local development)
@@ -2776,12 +2780,17 @@ def generate_video_token(patient_id):
             from twilio.jwt.access_token import AccessToken
             from twilio.jwt.access_token.grants import VideoGrant
             
-            # Generate unique room name
-            import uuid
-            room_name = f"patient_{patient_id}_{uuid.uuid4().hex[:8]}"
+            # Use existing room name if provided, otherwise generate new one
+            if existing_room_name:
+                room_name = existing_room_name
+                logger.info(f"📹 Using existing room name: {room_name}")
+            else:
+                import uuid
+                room_name = f"patient_{patient_id}_{uuid.uuid4().hex[:8]}"
+                logger.info(f"📹 Generated new room name: {room_name}")
             
             # Create access token for practitioner
-            identity = f"practitioner_{current_user.id}"
+            identity = f"practitioner_{current_user.id if current_user.is_authenticated else 'anonymous'}"
             
             if use_api_keys:
                 # Use Video API Keys (from Settings page)
@@ -3159,7 +3168,7 @@ def call_status_webhook():
                     
                     try:
                         # Fetch and save call summary
-                        from notification_service import NotificationService
+                        from .notification_service import NotificationService
                         notif_service = NotificationService()
                         notif_service.save_call_summary_to_notes(
                             patient_id=correspondence.patient_id,
@@ -3865,7 +3874,7 @@ def test_cliniko_credentials():
             return jsonify({'success': False, 'error': 'Shard is required'}), 400
         
         # Test the Cliniko API by fetching user info
-        from patient_matcher import ClinikoIntegration
+        from .patient_matcher import ClinikoIntegration
         cliniko_test = ClinikoIntegration(api_key, shard)
         
         # Try to get user info (this is a simple API call that will verify the credentials)
@@ -3988,7 +3997,7 @@ def test_smtp_credentials():
 def get_notification_templates():
     """Get notification templates for appointments"""
     try:
-        from models import NotificationTemplate
+        from .models import NotificationTemplate
         
         templates = NotificationTemplate.query.filter_by(
             is_active=True,
@@ -4121,7 +4130,7 @@ def api_send_report(patient_id):
             logger.info(f"✅ Sent health report email to {recipient_email} for patient {patient_id}")
         
         # Save to patient correspondence (always save)
-        from models import PatientCorrespondence
+        from .models import PatientCorrespondence
         correspondence = PatientCorrespondence(
             patient_id=patient_id,
             user_id=current_user.id if current_user.is_authenticated else None,
@@ -4171,7 +4180,7 @@ def api_send_report(patient_id):
 def get_heygen_avatars():
     """Get available HeyGen avatars"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
-    from config import Config
+    from .config import Config
     
     # Create a new Config instance to reload secrets from Secret Manager
     config_instance = Config()
@@ -4216,7 +4225,7 @@ def get_heygen_avatars():
 def get_heygen_voices():
     """Get available HeyGen voices"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
-    from config import Config
+    from .config import Config
     
     # Create a new Config instance to reload secrets from Secret Manager
     config_instance = Config()
@@ -4254,7 +4263,7 @@ def get_heygen_voices():
 def get_heygen_languages():
     """Get available HeyGen voice languages"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
-    from config import Config
+    from .config import Config
     config_instance = Config()
     
     api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
@@ -4275,7 +4284,7 @@ def get_heygen_languages():
 def generate_heygen_video():
     """Generate HeyGen video from health report script"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
-    from config import Config
+    from .config import Config
     config_instance = Config()
     
     api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
@@ -4311,7 +4320,7 @@ def generate_heygen_video():
 def get_heygen_status(video_id):
     """Check HeyGen video generation status"""
     # Reload config to ensure secrets are loaded (for Cloud Run)
-    from config import Config
+    from .config import Config
     config_instance = Config()
     
     api_key = Config.HEYGEN_API_KEY or os.getenv('HEYGEN_API_KEY')
