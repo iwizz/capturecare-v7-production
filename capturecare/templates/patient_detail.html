@@ -1107,8 +1107,8 @@
 </div>
 
 <!-- Date Range Filter for Health Data - Updated for better UX -->
-<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-4 mb-6 border border-blue-200">
-    <form id="dateFilterForm" method="GET" action="{{ url_for('patient_detail', patient_id=patient.id) }}" class="flex flex-wrap items-center gap-4">
+<div id="healthDataFilter" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-4 mb-6 border border-blue-200">
+    <form id="dateFilterForm" method="GET" action="{{ url_for('patient_detail', patient_id=patient.id) }}#healthDataFilter" class="flex flex-wrap items-center gap-4">
         <div class="flex items-center gap-2">
             <i class="fas fa-calendar-week text-brand-bright-teal text-xl"></i>
             <span class="font-semibold text-gray-700">Filter Health Data:</span>
@@ -1525,9 +1525,12 @@ function setDateRange(days) {
     document.getElementById('end_date').value = endDate.toISOString().split('T')[0];
     document.getElementById('start_date').value = startDate.toISOString().split('T')[0];
     
-    // Submit the date filter form
+    // Add hash to maintain scroll position after page reload
     const form = document.getElementById('dateFilterForm');
     if (form) {
+        // Update form action to include hash
+        const currentAction = form.action.split('#')[0];
+        form.action = currentAction + '#healthDataFilter';
         form.submit();
     }
 }
