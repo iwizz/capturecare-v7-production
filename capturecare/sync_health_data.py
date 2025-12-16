@@ -71,8 +71,8 @@ class HealthDataSynchronizer:
                     logger.info(f"📅 Month {month_num}/12: Fetching from {current_start.strftime('%Y-%m-%d')} to {current_end.strftime('%Y-%m-%d')}")
                     
                     try:
-                        # Fetch data for this month
-                        month_data = fetcher.fetch_all_data(patient_id, startdate=current_start, days_back=30)
+                        # Fetch data for this month (skip intraday to avoid memory issues)
+                        month_data = fetcher.fetch_all_data(patient_id, startdate=current_start, days_back=30, skip_intraday=True)
                         
                         total_measurements += len(month_data.get('measurements', []))
                         total_activities += len(month_data.get('activities', []))

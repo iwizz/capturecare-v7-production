@@ -66,13 +66,14 @@ class WithingsDataFetcher:
         """Initialize with access token from custom OAuth"""
         self.access_token = access_token
     
-    def fetch_all_data(self, patient_id, startdate=None, days_back=7):
+    def fetch_all_data(self, patient_id, startdate=None, days_back=7, skip_intraday=False):
         """Main method to fetch all types of data
         
         Args:
             patient_id: Patient ID
             startdate: Start date for fetching (datetime). If None, uses days_back from today
             days_back: Number of days back from today if startdate is not provided
+            skip_intraday: Skip intraday heart rate (for full sync to avoid memory issues)
         """
         try:
             patient = Patient.query.get(patient_id)
@@ -126,13 +127,16 @@ class WithingsDataFetcher:
             except Exception as e:
                 logger.error(f"❌ Error fetching devices: {e}")
             
-            # 5. Fetch intraday heart rate from smartwatch
-            try:
-                intraday_hr = self.fetch_intraday_heart_rate(patient_id, startdate, enddate)
-                data_collected['intraday_hr'] = intraday_hr
-                logger.info(f"✅ Fetched {len(intraday_hr)} intraday heart rate measurements")
-            except Exception as e:
-                logger.error(f"❌ Error fetching intraday heart rate: {e}")
+            # 5. Fetch intraday heart rate from smartwatch (skip during full sync to avoid memory issues)
+            if not skip_intraday:
+                try:
+                    intraday_hr = self.fetch_intraday_heart_rate(patient_id, startdate, enddate)
+                    data_collected['intraday_hr'] = intraday_hr
+                    logger.info(f"✅ Fetched {len(intraday_hr)} intraday heart rate measurements")
+                except Exception as e:
+                    logger.error(f"❌ Error fetching intraday heart rate: {e}")
+            else:
+                logger.info(f"⏭️  Skipping intraday heart rate (full sync mode)")
             
             return data_collected
             
