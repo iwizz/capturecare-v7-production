@@ -4,7 +4,7 @@ from flask_cors import CORS
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime, timedelta
 from sqlalchemy import or_
-from .models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth, OnboardingChecklist
+from .models import db, Patient, HealthData, Device, User, TargetRange, Appointment, PatientNote, WebhookLog, Invoice, InvoiceItem, PatientCorrespondence, CommunicationWebhookLog, NotificationTemplate, AvailabilityPattern, AvailabilityException, PatientAuth, OnboardingChecklist, CompanyAsset
 from .config import Config
 from .withings_auth import WithingsAuthManager
 from .sync_health_data import HealthDataSynchronizer
@@ -32,6 +32,7 @@ from .blueprints.patients import patients_bp
 from .blueprints.patient_portal import patient_portal_bp
 from .blueprints.appointments import appointments_bp
 from .blueprints.leads import leads_bp
+from .blueprints.company_assets import company_assets_bp
 
 
 # Configure logging with Australian Eastern time
@@ -135,6 +136,7 @@ app.register_blueprint(patients_bp)
 app.register_blueprint(patient_portal_bp)
 app.register_blueprint(appointments_bp)
 app.register_blueprint(leads_bp)
+app.register_blueprint(company_assets_bp)
 
 # Force production security settings
 os.environ['FLASK_DEBUG'] = '0'
@@ -2721,10 +2723,6 @@ def generate_video_token(patient_id):
     try:
         patient = Patient.query.get_or_404(patient_id)
         
-        # Get optional room_name from request body
-        data = request.get_json() or {}
-        existing_room_name = data.get('room_name')
-        
         # Get credentials - Prioritize Secret Manager (Cloud) over .env file (local)
         # Only reload .env file if NOT using Secret Manager (local development)
         use_secret_manager = os.getenv('USE_SECRET_MANAGER', 'False').lower() == 'true'
@@ -2780,17 +2778,12 @@ def generate_video_token(patient_id):
             from twilio.jwt.access_token import AccessToken
             from twilio.jwt.access_token.grants import VideoGrant
             
-            # Use existing room name if provided, otherwise generate new one
-            if existing_room_name:
-                room_name = existing_room_name
-                logger.info(f"📹 Using existing room name: {room_name}")
-            else:
-                import uuid
-                room_name = f"patient_{patient_id}_{uuid.uuid4().hex[:8]}"
-                logger.info(f"📹 Generated new room name: {room_name}")
+            # Generate unique room name
+            import uuid
+            room_name = f"patient_{patient_id}_{uuid.uuid4().hex[:8]}"
             
             # Create access token for practitioner
-            identity = f"practitioner_{current_user.id if current_user.is_authenticated else 'anonymous'}"
+            identity = f"practitioner_{current_user.id}"
             
             if use_api_keys:
                 # Use Video API Keys (from Settings page)

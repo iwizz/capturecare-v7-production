@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, session, flash, current_app
 from flask_login import login_required, current_user
-from models import db, User, NotificationTemplate
-from notification_service import NotificationService
+from ..models import db, User, NotificationTemplate
+from ..notification_service import NotificationService
 from datetime import datetime, timedelta
 import os
 import logging
@@ -226,7 +226,7 @@ def settings():
     try:
         # Import here to avoid circular imports if possible, or move to better location
         # Assuming this is accessible or we need to pass it differently
-        from calendar_sync import GoogleCalendarSync
+        from ..calendar_sync import GoogleCalendarSync
         calendar_sync = GoogleCalendarSync()
         calendar_info = calendar_sync.get_calendar_info()
     except Exception as e:
@@ -275,7 +275,7 @@ def create_patient_auth_table():
             }), 200
         
         # Create the table
-        from models import PatientAuth
+        from ..models import PatientAuth
         logger.info("Creating PatientAuth table...")
         PatientAuth.__table__.create(db.engine, checkfirst=True)
         

@@ -1,17 +1,17 @@
 from flask import Blueprint, render_template, request, jsonify, current_app, flash, redirect, url_for, session
 from flask_login import login_required, current_user
-from models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, UserAvailability, Device, HealthData
+from ..models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, UserAvailability, Device, HealthData
 from datetime import datetime, timedelta, time
 import logging
 import os
 from sqlalchemy import orm
 from functools import wraps
-from withings_auth import WithingsAuthManager
-from sync_health_data import HealthDataSynchronizer
-from patient_matcher import ClinikoIntegration
-from ai_health_reporter import AIHealthReporter
-from email_sender import EmailSender
-from heygen_service import HeyGenService
+from ..withings_auth import WithingsAuthManager
+from ..sync_health_data import HealthDataSynchronizer
+from ..patient_matcher import ClinikoIntegration
+from ..ai_health_reporter import AIHealthReporter
+from ..email_sender import EmailSender
+from ..heygen_service import HeyGenService
 
 # Create blueprint
 appointments_bp = Blueprint('appointments', __name__)
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Helper to get calendar sync service
 def get_calendar_sync():
     try:
-        from calendar_sync import GoogleCalendarSync
+        from ..calendar_sync import GoogleCalendarSync
         return GoogleCalendarSync()
     except Exception as e:
         logger.warning(f"Google Calendar integration not available: {e}")
@@ -29,7 +29,7 @@ def get_calendar_sync():
 # Helper to get notification service
 def get_notification_service():
     try:
-        from notification_service import NotificationService
+        from ..notification_service import NotificationService
         return NotificationService()
     except Exception as e:
         logger.warning(f"Notification service not available: {e}")
@@ -424,7 +424,7 @@ def create_appointment():
         notification_result = {'sms': False, 'email': False}
         if patient:
             try:
-                from notification_service import NotificationService
+                from ..notification_service import NotificationService
                 notification_service = NotificationService()
                 
                 # Prepare template variables
@@ -435,7 +435,7 @@ def create_appointment():
                 if patient.mobile or patient.phone:
                     try:
                         # Get custom SMS template if exists
-                        from models import NotificationTemplate
+                        from ..models import NotificationTemplate
                         sms_template = NotificationTemplate.query.filter_by(
                             template_type='sms',
                             template_name='appointment_confirmation',
@@ -584,7 +584,7 @@ def send_appointment_confirmation(appointment_id):
             return jsonify({'success': False, 'error': 'No patient associated with this appointment'}), 400
             
         # Get notification service (assumed to be in app context or created fresh)
-        from notification_service import NotificationService
+        from ..notification_service import NotificationService
         notification_service = NotificationService()
         
         results = {
@@ -806,7 +806,7 @@ def check_reminders():
     if not current_user.is_authenticated and not current_app.config.get('DEBUG'):
         return jsonify({'success': False, 'error': 'Authentication required'}), 401
     try:
-        from appointment_reminder_service import AppointmentReminderService
+        from ..appointment_reminder_service import AppointmentReminderService
         
         reminder_service = AppointmentReminderService()
         stats = reminder_service.check_and_send_reminders()
@@ -2380,7 +2380,7 @@ def add_patient_appointment(patient_id):
         notification_result = {'sms': False, 'email': False}
         if patient:
             try:
-                from notification_service import NotificationService
+                from ..notification_service import NotificationService
                 notification_service = NotificationService()
                 
                 # Prepare template variables
@@ -2391,7 +2391,7 @@ def add_patient_appointment(patient_id):
                 if patient.mobile or patient.phone:
                     try:
                         # Get custom SMS template if exists
-                        from models import NotificationTemplate
+                        from ..models import NotificationTemplate
                         sms_template = NotificationTemplate.query.filter_by(
                             template_type='sms',
                             template_name='appointment_confirmation',
@@ -3072,7 +3072,7 @@ def send_withings_email(patient_id):
             body_html = f"<html><body><h1>Connect Your Withings Device</h1><p>Hello {patient.first_name},</p><p><a href='{authorize_url}' style='background-color: #00698f; color: white; padding: 16px 32px; text-decoration: none; border-radius: 6px; font-weight: bold;'>CONNECT TO YOUR WITHINGS DEVICE</a></p></body></html>"
         
         # Use NotificationService which has send_email method for HTML emails
-        from notification_service import NotificationService
+        from ..notification_service import NotificationService
         notification_service = NotificationService()
         
         body_text = f"Hello {patient.first_name},\n\nYour healthcare provider has requested that you connect your Withings device to your CaptureCare account.\n\nClick this link to authorize: {authorize_url}\n\nIf the link doesn't work, copy and paste it into your browser."

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, current_user, login_required
-from models import db, User, PatientAuth, Patient
+from ..models import db, User, PatientAuth, Patient
 from datetime import datetime, timedelta
 import logging
 import os

@@ -4,7 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-from config import Config
+from .config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +18,9 @@ class NotificationService:
         """Initialize or reinitialize services with current config"""
         # Reload config from environment
         from importlib import reload
-        import config
+        from . import config
         reload(config)
-        from config import Config
+        from .config import Config
         
         self.twilio_configured = bool(Config.TWILIO_ACCOUNT_SID and Config.TWILIO_AUTH_TOKEN and Config.TWILIO_PHONE_NUMBER)
         self.smtp_configured = bool(Config.SMTP_USERNAME and Config.SMTP_PASSWORD)

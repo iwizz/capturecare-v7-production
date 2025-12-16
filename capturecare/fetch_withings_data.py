@@ -9,10 +9,10 @@ import requests
 import json
 import time
 from datetime import datetime, timedelta, timezone
-from models import db, HealthData, Device, Patient
+from .models import db, HealthData, Device, Patient
 import logging
 from sqlalchemy.exc import OperationalError
-from tz_utils import to_local
+from .tz_utils import to_local
 
 logger = logging.getLogger(__name__)
 

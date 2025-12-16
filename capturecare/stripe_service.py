@@ -1,7 +1,7 @@
 import os
 import stripe
 from datetime import datetime, timedelta
-from models import db, Invoice, InvoiceItem, Patient
+from .models import db, Invoice, InvoiceItem, Patient
 import logging
 
 logger = logging.getLogger(__name__)

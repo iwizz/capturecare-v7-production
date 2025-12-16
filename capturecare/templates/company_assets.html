@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}Company Assets - CaptureCare{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-6 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800 flex items-center">
+                    <i class="fas fa-folder-open mr-3 text-brand-soft-blue"></i>
+                    Company Assets
+                </h1>
+                <p class="text-gray-600 mt-2">Shared documents, files, and resources for the entire practice</p>
+            </div>
+            <button onclick="openAddAssetModal()" 
+                    class="bg-brand-soft-blue text-white px-6 py-3 rounded-lg hover:bg-brand-bright-teal transition flex items-center shadow-md">
+                <i class="fas fa-plus mr-2"></i>
+                Add Asset
+            </button>
+        </div>
+    </div>
+
+    <!-- Search and Filter Bar -->
+    <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+        <form method="GET" class="flex flex-wrap gap-4 items-center">
+            <!-- Search -->
+            <div class="flex-1 min-w-64">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                    <input type="text" 
+                           name="search" 
+                           value="{{ search_query }}" 
+                           placeholder="Search assets, tags, or descriptions..." 
+                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent">
+                </div>
+            </div>
+            
+            <!-- Category Filter -->
+            <div class="min-w-48">
+                <select name="category" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent">
+                    <option value="">All Categories</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {% if cat == current_category %}selected{% endif %}>
+                        {{ cat|title }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Search Button -->
+            <button type="submit" 
+                    class="bg-brand-teal text-white px-6 py-2 rounded-lg hover:bg-brand-charcoal transition">
+                <i class="fas fa-filter mr-2"></i>Filter
+            </button>
+            
+            <!-- Clear Filters -->
+            {% if search_query or current_category %}
+            <a href="{{ url_for('company_assets.assets_list') }}" 
+               class="text-gray-600 hover:text-gray-800 px-4 py-2">
+                <i class="fas fa-times mr-2"></i>Clear
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Assets Grid -->
+    {% if assets %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for asset in assets %}
+        <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition border border-gray-200 overflow-hidden relative">
+            <!-- Pinned Badge -->
+            {% if asset.is_pinned %}
+            <div class="absolute top-3 right-3 z-10">
+                <span class="bg-yellow-400 text-yellow-900 text-xs px-2 py-1 rounded-full flex items-center">
+                    <i class="fas fa-thumbtack mr-1"></i>Pinned
+                </span>
+            </div>
+            {% endif %}
+            
+            <!-- Asset Type Icon Header -->
+            <div class="p-6 {% if asset.asset_type == 'link' %}bg-gradient-to-r from-blue-50 to-blue-100{% else %}bg-gradient-to-r from-green-50 to-green-100{% endif %}">
+                <div class="flex items-center justify-center">
+                    {% if asset.asset_type == 'link' %}
+                    <i class="fas fa-link text-5xl text-blue-500"></i>
+                    {% elif asset.file_type and 'pdf' in asset.file_type %}
+                    <i class="fas fa-file-pdf text-5xl text-red-500"></i>
+                    {% elif asset.file_type and ('word' in asset.file_type or 'document' in asset.file_type) %}
+                    <i class="fas fa-file-word text-5xl text-blue-600"></i>
+                    {% elif asset.file_type and ('excel' in asset.file_type or 'spreadsheet' in asset.file_type) %}
+                    <i class="fas fa-file-excel text-5xl text-green-600"></i>
+                    {% elif asset.file_type and ('powerpoint' in asset.file_type or 'presentation' in asset.file_type) %}
+                    <i class="fas fa-file-powerpoint text-5xl text-orange-600"></i>
+                    {% elif asset.file_type and 'image' in asset.file_type %}
+                    <i class="fas fa-file-image text-5xl text-purple-500"></i>
+                    {% elif asset.file_type and 'zip' in asset.file_type %}
+                    <i class="fas fa-file-archive text-5xl text-gray-600"></i>
+                    {% else %}
+                    <i class="fas fa-file text-5xl text-gray-500"></i>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Asset Content -->
+            <div class="p-6">
+                <!-- Title -->
+                <h3 class="text-lg font-bold text-gray-800 mb-2 truncate">{{ asset.title }}</h3>
+                
+                <!-- Category Badge -->
+                {% if asset.category %}
+                <span class="inline-block bg-brand-soft-blue text-white text-xs px-2 py-1 rounded-full mb-3">
+                    {{ asset.category|title }}
+                </span>
+                {% endif %}
+                
+                <!-- Description -->
+                {% if asset.description %}
+                <p class="text-gray-600 text-sm mb-4 line-clamp-3">{{ asset.description }}</p>
+                {% endif %}
+                
+                <!-- Tags -->
+                {% if asset.tags %}
+                <div class="mb-4 flex flex-wrap gap-1">
+                    {% for tag in asset.tags.split(',') %}
+                    <span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">{{ tag.strip() }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <!-- Metadata -->
+                <div class="text-xs text-gray-500 mb-4 space-y-1">
+                    {% if asset.file_size %}
+                    <div><i class="fas fa-database mr-1"></i> {{ (asset.file_size / 1024 / 1024)|round(2) }} MB</div>
+                    {% endif %}
+                    <div><i class="fas fa-user mr-1"></i> {{ asset.created_by.full_name }}</div>
+                    <div><i class="fas fa-clock mr-1"></i> {{ asset.created_at.strftime('%b %d, %Y') }}</div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="flex gap-2">
+                    {% if asset.asset_type == 'link' %}
+                    <a href="{{ asset.link_url }}" 
+                       target="_blank" 
+                       class="flex-1 bg-blue-500 text-white text-center px-4 py-2 rounded-lg hover:bg-blue-600 transition text-sm">
+                        <i class="fas fa-external-link-alt mr-2"></i>Open Link
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('company_assets.download_asset', asset_id=asset.id) }}" 
+                       class="flex-1 bg-green-500 text-white text-center px-4 py-2 rounded-lg hover:bg-green-600 transition text-sm">
+                        <i class="fas fa-download mr-2"></i>Download
+                    </a>
+                    {% endif %}
+                    
+                    <!-- Dropdown Menu -->
+                    <div class="relative">
+                        <button onclick="toggleDropdown({{ asset.id }})" 
+                                class="bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 transition">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <div id="dropdown-{{ asset.id }}" 
+                             class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
+                            <button onclick="togglePin({{ asset.id }})" 
+                                    class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm">
+                                <i class="fas fa-thumbtack mr-2"></i>
+                                {% if asset.is_pinned %}Unpin{% else %}Pin{% endif %}
+                            </button>
+                            <button onclick="editAsset({{ asset.id }})" 
+                                    class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm">
+                                <i class="fas fa-edit mr-2"></i>Edit
+                            </button>
+                            <button onclick="deleteAsset({{ asset.id }}, '{{ asset.title }}')" 
+                                    class="w-full text-left px-4 py-2 hover:bg-red-100 text-red-600 text-sm">
+                                <i class="fas fa-trash mr-2"></i>Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <i class="fas fa-folder-open text-6xl text-gray-300 mb-4"></i>
+        <h3 class="text-xl font-semibold text-gray-700 mb-2">No Assets Found</h3>
+        <p class="text-gray-500 mb-6">Start by adding your first company asset - documents, files, or links</p>
+        <button onclick="openAddAssetModal()" 
+                class="bg-brand-soft-blue text-white px-6 py-3 rounded-lg hover:bg-brand-bright-teal transition">
+            <i class="fas fa-plus mr-2"></i>Add Your First Asset
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add/Edit Asset Modal -->
+<div id="assetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
+        <div class="p-6 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <h2 id="modalTitle" class="text-2xl font-bold text-gray-800">
+                    <i class="fas fa-plus-circle mr-2 text-brand-soft-blue"></i>Add Company Asset
+                </h2>
+                <button onclick="closeAssetModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+        </div>
+        
+        <form id="assetForm" enctype="multipart/form-data" class="p-6">
+            <!-- Asset Type Selection -->
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-gray-700 mb-3">Asset Type</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <button type="button" onclick="selectAssetType('file')" 
+                            id="fileTypeBtn"
+                            class="asset-type-btn border-2 border-brand-soft-blue bg-brand-soft-blue text-white p-4 rounded-lg text-center">
+                        <i class="fas fa-file-upload text-2xl mb-2"></i>
+                        <div class="font-semibold">Upload File</div>
+                        <div class="text-xs mt-1">PDFs, Documents, Images</div>
+                    </button>
+                    <button type="button" onclick="selectAssetType('link')" 
+                            id="linkTypeBtn"
+                            class="asset-type-btn border-2 border-gray-300 p-4 rounded-lg text-center hover:border-brand-soft-blue">
+                        <i class="fas fa-link text-2xl mb-2"></i>
+                        <div class="font-semibold">Add Link</div>
+                        <div class="text-xs mt-1">Google Docs, Websites</div>
+                    </button>
+                </div>
+                <input type="hidden" id="assetType" name="asset_type" value="file">
+            </div>
+            
+            <!-- Title -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    Title <span class="text-red-500">*</span>
+                </label>
+                <input type="text" 
+                       id="assetTitle" 
+                       name="title" 
+                       required 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent"
+                       placeholder="e.g., Patient Consent Form, Staff Handbook">
+            </div>
+            
+            <!-- Description -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                <textarea id="assetDescription" 
+                          name="description" 
+                          rows="3" 
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent"
+                          placeholder="Brief description of this asset..."></textarea>
+            </div>
+            
+            <!-- Category -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                <select id="assetCategory" 
+                        name="category" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent">
+                    <option value="">Select category...</option>
+                    <option value="forms">Forms</option>
+                    <option value="policies">Policies</option>
+                    <option value="training">Training Materials</option>
+                    <option value="resources">Resources</option>
+                    <option value="guidelines">Clinical Guidelines</option>
+                    <option value="templates">Templates</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            
+            <!-- Tags -->
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Tags (comma-separated)</label>
+                <input type="text" 
+                       id="assetTags" 
+                       name="tags" 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent"
+                       placeholder="e.g., consent, patient, important">
+            </div>
+            
+            <!-- File Upload (shown when asset_type is 'file') -->
+            <div id="fileUploadSection" class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    Upload File <span class="text-red-500">*</span>
+                </label>
+                <input type="file" 
+                       id="assetFile" 
+                       name="file" 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent">
+                <p class="text-xs text-gray-500 mt-1">
+                    Supported: PDF, Word, Excel, PowerPoint, Images, ZIP (Max 50MB)
+                </p>
+            </div>
+            
+            <!-- Link URL (shown when asset_type is 'link') -->
+            <div id="linkUrlSection" class="mb-4 hidden">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    Link URL <span class="text-red-500">*</span>
+                </label>
+                <input type="url" 
+                       id="assetLinkUrl" 
+                       name="link_url" 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-soft-blue focus:border-transparent"
+                       placeholder="https://docs.google.com/...">
+                <p class="text-xs text-gray-500 mt-1">
+                    Enter the full URL including https://
+                </p>
+            </div>
+            
+            <!-- Form Actions -->
+            <div class="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
+                <button type="button" 
+                        onclick="closeAssetModal()" 
+                        class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        id="submitBtn"
+                        class="bg-brand-soft-blue text-white px-6 py-2 rounded-lg hover:bg-brand-bright-teal transition">
+                    <i class="fas fa-check mr-2"></i>Add Asset
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Asset type selection
+function selectAssetType(type) {
+    document.getElementById('assetType').value = type;
+    
+    // Update button styles
+    const fileBtn = document.getElementById('fileTypeBtn');
+    const linkBtn = document.getElementById('linkTypeBtn');
+    
+    if (type === 'file') {
+        fileBtn.className = 'asset-type-btn border-2 border-brand-soft-blue bg-brand-soft-blue text-white p-4 rounded-lg text-center';
+        linkBtn.className = 'asset-type-btn border-2 border-gray-300 p-4 rounded-lg text-center hover:border-brand-soft-blue';
+        
+        document.getElementById('fileUploadSection').classList.remove('hidden');
+        document.getElementById('linkUrlSection').classList.add('hidden');
+        document.getElementById('assetFile').required = true;
+        document.getElementById('assetLinkUrl').required = false;
+    } else {
+        linkBtn.className = 'asset-type-btn border-2 border-brand-soft-blue bg-brand-soft-blue text-white p-4 rounded-lg text-center';
+        fileBtn.className = 'asset-type-btn border-2 border-gray-300 p-4 rounded-lg text-center hover:border-brand-soft-blue';
+        
+        document.getElementById('fileUploadSection').classList.add('hidden');
+        document.getElementById('linkUrlSection').classList.remove('hidden');
+        document.getElementById('assetFile').required = false;
+        document.getElementById('assetLinkUrl').required = true;
+    }
+}
+
+// Modal management
+function openAddAssetModal() {
+    document.getElementById('assetModal').classList.remove('hidden');
+    document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus-circle mr-2 text-brand-soft-blue"></i>Add Company Asset';
+    document.getElementById('assetForm').reset();
+    selectAssetType('file');
+}
+
+function closeAssetModal() {
+    document.getElementById('assetModal').classList.add('hidden');
+}
+
+// Form submission
+document.getElementById('assetForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Uploading...';
+    
+    const formData = new FormData(this);
+    
+    try {
+        const response = await fetch('/api/company-assets', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('Asset added successfully!');
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error uploading asset: ' + error.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-check mr-2"></i>Add Asset';
+    }
+});
+
+// Dropdown management
+function toggleDropdown(assetId) {
+    const dropdown = document.getElementById('dropdown-' + assetId);
+    const allDropdowns = document.querySelectorAll('[id^="dropdown-"]');
+    
+    // Close all other dropdowns
+    allDropdowns.forEach(d => {
+        if (d !== dropdown) d.classList.add('hidden');
+    });
+    
+    dropdown.classList.toggle('hidden');
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('[onclick^="toggleDropdown"]') && !e.target.closest('[id^="dropdown-"]')) {
+        document.querySelectorAll('[id^="dropdown-"]').forEach(d => d.classList.add('hidden'));
+    }
+});
+
+// Toggle pin
+async function togglePin(assetId) {
+    try {
+        const response = await fetch(`/api/company-assets/${assetId}/toggle-pin`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error toggling pin: ' + error.message);
+    }
+}
+
+// Delete asset
+async function deleteAsset(assetId, assetTitle) {
+    if (!confirm(`Are you sure you want to delete "${assetTitle}"? This action cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/company-assets/${assetId}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('Asset deleted successfully');
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error deleting asset: ' + error.message);
+    }
+}
+
+// Edit asset (simplified - just shows alert for now)
+function editAsset(assetId) {
+    alert('Edit functionality coming soon! For now, please delete and re-add the asset.');
+}
+</script>
+
+<style>
+.line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+</style>
+{% endblock %}
+

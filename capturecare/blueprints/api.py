@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from models import db, User, AvailabilityPattern, AvailabilityException, Patient
+from ..models import db, User, AvailabilityPattern, AvailabilityException, Patient
 from datetime import date, timedelta
 from sqlalchemy.orm import joinedload
 import logging

@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import or_, desc
 from datetime import datetime
 
-from models import db, Lead, Patient, User
+from ..models import db, Lead, Patient, User
 
 leads_bp = Blueprint('leads', __name__, url_prefix='/leads')
 

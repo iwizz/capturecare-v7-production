@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
-from models import db, Patient, HealthData
-from withings_auth import WithingsAuthManager
-from fetch_withings_data import WithingsDataFetcher
-from google_sheet_writer import GoogleSheetWriter
-from ai_health_reporter import AIHealthReporter
-from email_sender import EmailSender
+from .models import db, Patient, HealthData
+from .withings_auth import WithingsAuthManager
+from .fetch_withings_data import WithingsDataFetcher
+from .google_sheet_writer import GoogleSheetWriter
+from .ai_health_reporter import AIHealthReporter
+from .email_sender import EmailSender
 import logging
 
 logger = logging.getLogger(__name__)

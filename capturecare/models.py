@@ -859,3 +859,56 @@ class Lead(db.Model):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
+
+class CompanyAsset(db.Model):
+    """Company-wide assets and resources accessible to all staff"""
+    __tablename__ = 'company_assets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    asset_type = db.Column(db.String(50), nullable=False)  # 'file', 'link', 'document'
+    category = db.Column(db.String(100), nullable=True)  # 'forms', 'policies', 'training', 'resources', etc.
+    
+    # For uploaded files
+    file_path = db.Column(db.String(500), nullable=True)  # Path to uploaded file
+    file_name = db.Column(db.String(255), nullable=True)  # Original filename
+    file_type = db.Column(db.String(50), nullable=True)  # MIME type
+    file_size = db.Column(db.Integer, nullable=True)  # File size in bytes
+    
+    # For links
+    link_url = db.Column(db.Text, nullable=True)  # URL to external resource (Google Docs, etc.)
+    
+    # Metadata
+    tags = db.Column(db.String(500), nullable=True)  # Comma-separated tags for searching
+    is_pinned = db.Column(db.Boolean, default=False)  # Pin important assets to top
+    
+    # Audit fields
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    created_by = db.relationship('User', foreign_keys=[created_by_id], lazy='select')
+    
+    def __repr__(self):
+        return f'<CompanyAsset {self.title} ({self.asset_type})>'
+    
+    def to_dict(self):
+        """Convert asset to dictionary for API responses"""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description,
+            'asset_type': self.asset_type,
+            'category': self.category,
+            'file_name': self.file_name,
+            'file_type': self.file_type,
+            'file_size': self.file_size,
+            'link_url': self.link_url,
+            'tags': self.tags.split(',') if self.tags else [],
+            'is_pinned': self.is_pinned,
+            'created_by': self.created_by.full_name if self.created_by else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }

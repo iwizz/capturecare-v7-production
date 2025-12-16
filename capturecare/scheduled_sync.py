@@ -1,8 +1,8 @@
 import schedule
 import time
 from datetime import datetime
-from sync_health_data import HealthDataSynchronizer
-from config import Config
+from .sync_health_data import HealthDataSynchronizer
+from .config import Config
 import logging
 
 logging.basicConfig(

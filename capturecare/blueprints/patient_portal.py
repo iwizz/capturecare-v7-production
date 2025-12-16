@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
-from models import db, Patient, HealthData, TargetRange, PatientAuth
+from ..models import db, Patient, HealthData, TargetRange, PatientAuth
 from datetime import datetime, timedelta
 from functools import wraps
-from extensions import cache
+from ..extensions import cache
 import jwt
 import os
 import logging
