@@ -5640,6 +5640,78 @@ def run_startup_migrations():
                     logger.warning(f"Could not fix sequence {seq_name}: {seq_error}")
             
             logger.info("✅ All sequences synchronized")
+        
+        # Fix company_assets table if it exists but is missing columns
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            
+            if 'company_assets' in inspector.get_table_names():
+                assets_columns = [col['name'] for col in inspector.get_columns('company_assets')]
+                
+                # Check if critical columns are missing
+                missing_columns = []
+                required_columns = {
+                    'file_name': 'VARCHAR(255)',
+                    'file_type': 'VARCHAR(50)',
+                    'file_size': 'INTEGER',
+                    'link_url': 'TEXT',
+                    'tags': 'VARCHAR(500)',
+                    'is_pinned': 'BOOLEAN DEFAULT FALSE'
+                }
+                
+                for col_name in required_columns:
+                    if col_name not in assets_columns:
+                        missing_columns.append(col_name)
+                
+                if missing_columns:
+                    logger.info(f"🔧 Fixing company_assets table - adding missing columns: {', '.join(missing_columns)}")
+                    
+                    with db.engine.connect() as conn:
+                        for col_name, col_def in required_columns.items():
+                            if col_name in missing_columns:
+                                try:
+                                    # For PostgreSQL
+                                    if 'postgresql' in str(db.engine.url).lower():
+                                        conn.execute(text(f"""
+                                            DO $$ 
+                                            BEGIN
+                                                IF NOT EXISTS (
+                                                    SELECT 1 FROM information_schema.columns 
+                                                    WHERE table_name='company_assets' AND column_name='{col_name}'
+                                                ) THEN
+                                                    ALTER TABLE company_assets ADD COLUMN {col_name} {col_def};
+                                                END IF;
+                                            END $$;
+                                        """))
+                                    else:
+                                        # For SQLite
+                                        conn.execute(text(f"ALTER TABLE company_assets ADD COLUMN {col_name} {col_def}"))
+                                    
+                                    conn.commit()
+                                    logger.info(f"✅ Added column: {col_name}")
+                                except Exception as col_error:
+                                    if "already exists" in str(col_error).lower():
+                                        logger.info(f"⏭️  Column {col_name} already exists")
+                                    else:
+                                        logger.warning(f"Could not add column {col_name}: {col_error}")
+                        
+                        # Create indexes
+                        try:
+                            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_company_assets_category ON company_assets(category)"))
+                            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_company_assets_asset_type ON company_assets(asset_type)"))
+                            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_company_assets_is_pinned ON company_assets(is_pinned)"))
+                            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_company_assets_created_by ON company_assets(created_by_id)"))
+                            conn.commit()
+                            logger.info("✅ Company assets indexes created")
+                        except Exception as idx_error:
+                            logger.info(f"⏭️  Indexes already exist: {idx_error}")
+                    
+                    logger.info("✅ Company assets table fixed successfully")
+                else:
+                    logger.info("✅ Company assets table schema is correct")
+        except Exception as assets_error:
+            logger.warning(f"Could not check/fix company_assets table: {assets_error}")
             
     except Exception as e:
         logger.warning(f"Migration check failed (non-critical): {e}")
