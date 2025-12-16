@@ -1515,7 +1515,11 @@ async function loadMonthGrid() {
                         practitionerId: practId,
                         title: event.title,
                         color: practitionerColors[practId] || '#3b82f6',
-                        slotCount: slotCount
+                        slotCount: slotCount,
+                        appointmentId: event.id || '',
+                        patientId: event.extendedProps?.patient_id || '',
+                        appointmentType: event.extendedProps?.appointment_type || 'Standard',
+                        status: event.extendedProps?.status || 'booked'
                     });
                 }
             });
@@ -1646,11 +1650,15 @@ async function loadMonthGrid() {
         // Only make day cell clickable if there are appointments or availability
         const hasClickableContent = appointments.length > 0 || availability.length > 0;
         const dayCellClass = hasClickableContent 
-            ? `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 hover:shadow-md transition-all cursor-pointer relative group`
-            : `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 relative group`;
+            ? `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 hover:shadow-md transition-all cursor-pointer relative group month-day-cell`
+            : `aspect-square bg-white border-2 ${isToday ? 'border-brand-bright-teal' : 'border-gray-200'} rounded-lg p-2 relative group month-day-cell`;
         const dayCellOnClick = hasClickableContent ? `onclick="selectDay('${dateStr}')"` : '';
         
-        html += `<div class="${dayCellClass}" ${dayCellOnClick}>`;
+        html += `<div class="${dayCellClass}" ${dayCellOnClick} 
+            data-date="${dateStr}"
+            ondragover="handleMonthDragOver(event)"
+            ondragleave="handleMonthDragLeave(event)"
+            ondrop="handleMonthDrop(event, '${dateStr}')">`;
         
         // Day number
         html += `<div class="text-sm font-semibold ${isToday ? 'text-brand-bright-teal' : 'text-gray-700'} mb-1">${day}</div>`;
@@ -1696,15 +1704,21 @@ async function loadMonthGrid() {
             const uniqueId = `apt-${dateStr}-${index}`;
             const initials = apt.practitionerInitials || (apt.practitionerName ? apt.practitionerName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
             const slotCount = apt.slotCount || 1;
+            const appointmentId = apt.appointmentId || '';
             html += `<div class="relative group/circle">
-                <div class="w-8 h-6 rounded bg-blue-500 border-2 border-white shadow-sm hover:scale-110 transition-transform cursor-pointer flex items-center justify-center text-white text-[10px] font-bold"
+                <div class="w-8 h-6 rounded bg-blue-500 border-2 border-white shadow-sm hover:scale-110 hover:ring-2 hover:ring-blue-300 transition-transform cursor-move flex items-center justify-center text-white text-[10px] font-bold"
                     style="background-color: ${apt.color || '#3b82f6'};"
                     data-patient="${apt.patientName}"
                     data-practitioner="${apt.practitionerName}"
                     data-time="${apt.time}"
                     data-title="${apt.title}"
                     data-date="${dateStr}"
-                    title="${apt.practitionerName} - ${slotCount} slot${slotCount !== 1 ? 's' : ''}">
+                    data-appointment-id="${appointmentId}"
+                    draggable="${appointmentId ? 'true' : 'false'}"
+                    ondragstart="${appointmentId ? `handleMonthDragStart(event, '${dateStr}', '${apt.time}', '${appointmentId}')` : ''}"
+                    ondragend="handleMonthDragEnd(event)"
+                    onclick="event.stopPropagation(); ${appointmentId ? `openAppointmentDrawer(${appointmentId})` : `viewBooking('${dateStr}', '${apt.time}')`};"
+                    title="${apt.practitionerName} - ${slotCount} slot${slotCount !== 1 ? 's' : ''} - Click to view, drag to move">
                     <div class="text-center leading-tight">
                         <div class="text-[9px]">${initials}</div>
                         <div class="text-[8px] opacity-90">${slotCount}</div>
@@ -1715,6 +1729,7 @@ async function loadMonthGrid() {
                     <div class="text-gray-300 text-[10px]">${apt.practitionerName}</div>
                     <div class="text-gray-400 text-[10px]">${apt.time} - ${apt.title}</div>
                     <div class="text-gray-400 text-[10px]">${slotCount} slot${slotCount !== 1 ? 's' : ''} (${slotCount * 30} min)</div>
+                    <div class="text-gray-500 text-[9px] mt-1 italic">Click to view • Drag to move</div>
                     <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
                         <div class="border-4 border-transparent border-t-gray-900"></div>
                     </div>
@@ -2577,6 +2592,127 @@ function handleDragEnd(event) {
     if (draggedAppointment) {
         console.log('Drag ended without drop');
     }
+}
+
+// Month view drag handlers
+function handleMonthDragStart(event, dateStr, timeStr, appointmentId) {
+    if (!appointmentId || appointmentId === '') {
+        console.error('No appointment ID for drag');
+        event.preventDefault();
+        return false;
+    }
+    
+    draggedAppointment = {
+        id: appointmentId,
+        date: dateStr,
+        time: timeStr
+    };
+    draggedElement = event.currentTarget;
+    
+    // Make the dragged element semi-transparent
+    event.currentTarget.style.opacity = '0.5';
+    event.currentTarget.style.cursor = 'grabbing';
+    
+    // Set drag data
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', appointmentId);
+    event.dataTransfer.setData('application/json', JSON.stringify(draggedAppointment));
+    
+    console.log('Month drag started:', draggedAppointment);
+}
+
+function handleMonthDragEnd(event) {
+    event.currentTarget.style.opacity = '1';
+    event.currentTarget.style.cursor = 'move';
+    
+    // Remove drop indicators from all day cells
+    document.querySelectorAll('.month-day-cell').forEach(el => {
+        el.classList.remove('ring-4', 'ring-blue-400', 'bg-blue-50');
+    });
+    
+    // Reset dragged appointment if drop didn't happen
+    if (draggedAppointment) {
+        console.log('Month drag ended');
+    }
+}
+
+function handleMonthDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (draggedAppointment) {
+        const dayCell = event.currentTarget;
+        // Highlight the day cell
+        dayCell.classList.add('ring-4', 'ring-blue-400', 'bg-blue-50');
+        event.dataTransfer.dropEffect = 'move';
+    }
+}
+
+function handleMonthDragLeave(event) {
+    const dayCell = event.currentTarget;
+    if (!dayCell.contains(event.relatedTarget)) {
+        dayCell.classList.remove('ring-4', 'ring-blue-400', 'bg-blue-50');
+    }
+}
+
+async function handleMonthDrop(event, newDateStr) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (!draggedAppointment || !draggedAppointment.id) {
+        console.error('No dragged appointment');
+        return;
+    }
+    
+    // Remove highlight
+    document.querySelectorAll('.month-day-cell').forEach(el => {
+        el.classList.remove('ring-4', 'ring-blue-400', 'bg-blue-50');
+    });
+    
+    const oldDateStr = draggedAppointment.date;
+    const oldTimeStr = draggedAppointment.time;
+    
+    // If dropped on same day, do nothing
+    if (newDateStr === oldDateStr) {
+        console.log('Dropped on same day, no action needed');
+        draggedAppointment = null;
+        draggedElement = null;
+        return;
+    }
+    
+    // Move appointment to new date, keeping same time
+    const newDateTime = new Date(`${newDateStr}T${oldTimeStr}`);
+    const duration = 60; // Default 60 minutes, could be fetched from appointment
+    const endDateTime = new Date(newDateTime.getTime() + duration * 60000);
+    
+    try {
+        const response = await fetch(`/api/calendar/appointments/${draggedAppointment.id}/move`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                start_time: newDateTime.toISOString(),
+                end_time: endDateTime.toISOString()
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(`✅ Appointment moved to ${newDateStr}`, 'success');
+            // Reload month view
+            loadMonthGrid();
+        } else {
+            showNotification(`❌ Error: ${data.error || 'Failed to move appointment'}`, 'error');
+            loadMonthGrid();
+        }
+    } catch (error) {
+        console.error('Error moving appointment:', error);
+        showNotification(`❌ Error moving appointment: ${error.message}`, 'error');
+        loadMonthGrid();
+    }
+    
+    draggedAppointment = null;
+    draggedElement = null;
 }
 
 // Add drop handlers to cells - initialize after grid loads

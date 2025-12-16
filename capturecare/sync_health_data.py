@@ -34,7 +34,7 @@ class HealthDataSynchronizer:
             config.get('SMTP_FROM_EMAIL', '')
         ) if config.get('SMTP_USERNAME') else None
     
-    def sync_patient_data(self, patient_id, days_back=7, startdate=None, send_email=False):
+    def sync_patient_data(self, patient_id, days_back=7, startdate=None, send_email=False, full_sync=False):
         try:
             patient = Patient.query.get(patient_id)
             if not patient:
@@ -49,25 +49,30 @@ class HealthDataSynchronizer:
             
             # Use provided startdate, or calculate from last record or days_back
             if startdate is None:
-                # Check for last record to determine start date
-                last_record = HealthData.query.filter_by(
-                    patient_id=patient_id
-                ).order_by(HealthData.timestamp.desc()).first()
-                
-                if last_record:
-                    # Start from last record timestamp minus 1 day buffer to catch any missed data
-                    startdate = last_record.timestamp - timedelta(days=1)
-                    logger.info(f"📊 Last record found: {last_record.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-                    logger.info(f"📅 Syncing from {startdate.strftime('%Y-%m-%d')} onwards (1 day buffer to catch missed data)")
+                if full_sync:
+                    # For full sync, always go back 12 months
+                    startdate = datetime.now() - timedelta(days=365)
+                    logger.info(f"📊 FULL SYNC: Fetching last 12 months from {startdate.strftime('%Y-%m-%d')}")
                 else:
-                    # No records exist, use days_back from today
-                    startdate = datetime.now() - timedelta(days=days_back)
-                    logger.info(f"📊 No existing records found. Syncing last {days_back} days from {startdate.strftime('%Y-%m-%d')}")
+                    # Check for last record to determine start date
+                    last_record = HealthData.query.filter_by(
+                        patient_id=patient_id
+                    ).order_by(HealthData.timestamp.desc()).first()
+                    
+                    if last_record:
+                        # Start from last record timestamp minus 1 day buffer to catch any missed data
+                        startdate = last_record.timestamp - timedelta(days=1)
+                        logger.info(f"📊 Last record found: {last_record.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"📅 Syncing from {startdate.strftime('%Y-%m-%d')} onwards (1 day buffer to catch missed data)")
+                    else:
+                        # No records exist, use days_back from today
+                        startdate = datetime.now() - timedelta(days=days_back)
+                        logger.info(f"📊 No existing records found. Syncing last {days_back} days from {startdate.strftime('%Y-%m-%d')}")
             else:
                 logger.info(f"📅 Using provided startdate: {startdate.strftime('%Y-%m-%d %H:%M:%S')}")
             
             fetcher = WithingsDataFetcher(access_token)
-            data = fetcher.fetch_all_data(patient_id, startdate=startdate)
+            data = fetcher.fetch_all_data(patient_id, startdate=startdate, days_back=days_back)
             
             if self.google_sheets:
                 health_data = HealthData.query.filter(

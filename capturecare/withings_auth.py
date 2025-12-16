@@ -273,7 +273,7 @@ class WithingsAuthManager:
 
     def save_tokens(self, patient_id, credentials):
         """Save tokens for a patient"""
-        from models import db, Patient
+        from .models import db, Patient
         
         patient = Patient.query.get(patient_id)
         if patient:
@@ -305,7 +305,7 @@ class WithingsAuthManager:
     
     def get_access_token(self, patient_id):
         """Get valid access token for a patient (refresh if needed)"""
-        from models import Patient
+        from .models import Patient
         
         patient = Patient.query.get(patient_id)
         if not patient or not patient.withings_access_token:
@@ -318,7 +318,7 @@ class WithingsAuthManager:
             if patient.withings_refresh_token:
                 if self.refresh_token(patient_id):
                     # Reload patient to get new token
-                    from models import db
+                    from .models import db
                     db.session.refresh(patient)
                     return patient.withings_access_token
                 else:
@@ -332,7 +332,7 @@ class WithingsAuthManager:
     
     def get_api_client(self, patient_id):
         """Get WithingsApi client for a patient"""
-        from models import Patient
+        from .models import Patient
         from withings_api import WithingsApi
         from withings_api.common import Credentials
         
@@ -359,7 +359,7 @@ class WithingsAuthManager:
     
     def refresh_token(self, patient_id):
         """Refresh access token for a patient"""
-        from models import db, Patient
+        from .models import db, Patient
         
         patient = Patient.query.get(patient_id)
         if not patient or not patient.withings_refresh_token:
@@ -398,7 +398,7 @@ class WithingsAuthManager:
     
     def reset_patient_connection(self, patient_id):
         """Reset Withings connection for a patient"""
-        from models import db, Patient
+        from .models import db, Patient
         
         patient = Patient.query.get(patient_id)
         if patient:

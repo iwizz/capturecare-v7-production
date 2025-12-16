@@ -2644,19 +2644,31 @@ def sync_patient_data(patient_id):
                 
                 # Determine sync range
                 startdate = None
-                if not full_sync:
-                    # Get last sync date
+                if full_sync:
+                    # For full sync, delete all existing data and fetch last 12 months
+                    logger.info(f"🗑️ FULL SYNC: Deleting all existing health data for patient {patient_id}")
+                    deleted_count = HealthData.query.filter_by(patient_id=patient_id).delete()
+                    db.session.commit()
+                    logger.info(f"✅ Deleted {deleted_count} existing health records")
+                    
+                    # Set startdate to 12 months ago
+                    startdate = datetime.utcnow() - timedelta(days=365)
+                    logger.info(f"📅 Full sync will fetch data from {startdate.strftime('%Y-%m-%d')} (12 months ago)")
+                else:
+                    # Incremental sync: Get last sync date
                     last_record = HealthData.query.filter_by(patient_id=patient_id).order_by(HealthData.timestamp.desc()).first()
                     if last_record:
                         # Start 1 day before last record
                         startdate = last_record.timestamp - timedelta(days=1)
+                        logger.info(f"📅 Incremental sync from {startdate.strftime('%Y-%m-%d')}")
                 
                 # Sync patient data
                 result = synchronizer.sync_patient_data(
                     patient_id=patient_id,
                     days_back=365 if full_sync else 7,
                     startdate=startdate,
-                    send_email=send_email
+                    send_email=send_email,
+                    full_sync=full_sync
                 )
                 
                 if result.get('success'):

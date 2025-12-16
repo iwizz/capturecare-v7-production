@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from ..models import db, User, NotificationTemplate
 from ..notification_service import NotificationService
 from datetime import datetime, timedelta
+from sqlalchemy import text
 import os
 import logging
 import secrets
@@ -348,3 +349,84 @@ def sanitize_phones():
         return redirect(url_for('admin.settings'))
         
     return render_template('admin/sanitize_phones.html', test_number='+61417518940')
+
+@admin_bp.route('/fix-company-assets', methods=['POST'])
+@login_required
+def fix_company_assets():
+    """Fix company_assets table by adding missing columns"""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Admin access required'}), 403
+    
+    try:
+        # Check if we're using PostgreSQL
+        is_postgres = 'postgresql' in str(db.engine.url).lower()
+        
+        if is_postgres:
+            logger.info("🔧 Fixing PostgreSQL company_assets table...")
+            
+            # Columns to add
+            columns_to_add = {
+                'file_name': 'VARCHAR(255)',
+                'file_type': 'VARCHAR(50)',
+                'file_size': 'INTEGER',
+                'link_url': 'TEXT',
+                'tags': 'VARCHAR(500)',
+                'is_pinned': 'BOOLEAN DEFAULT FALSE'
+            }
+            
+            added_columns = []
+            for column_name, column_def in columns_to_add.items():
+                try:
+                    sql = f"""
+                    DO $$ 
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='company_assets' AND column_name='{column_name}'
+                        ) THEN
+                            ALTER TABLE company_assets ADD COLUMN {column_name} {column_def};
+                        END IF;
+                    END $$;
+                    """
+                    db.session.execute(text(sql))
+                    db.session.commit()
+                    added_columns.append(column_name)
+                    logger.info(f"✅ Added/verified column: {column_name}")
+                except Exception as e:
+                    if "already exists" in str(e).lower():
+                        logger.info(f"⏭️  Column {column_name} already exists")
+                        db.session.rollback()
+                    else:
+                        raise
+            
+            # Create indexes
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_company_assets_category ON company_assets(category)",
+                "CREATE INDEX IF NOT EXISTS idx_company_assets_asset_type ON company_assets(asset_type)",
+                "CREATE INDEX IF NOT EXISTS idx_company_assets_is_pinned ON company_assets(is_pinned)",
+                "CREATE INDEX IF NOT EXISTS idx_company_assets_created_by ON company_assets(created_by_id)"
+            ]
+            
+            for index_sql in indexes:
+                try:
+                    db.session.execute(text(index_sql))
+                    db.session.commit()
+                except Exception as e:
+                    logger.info(f"⏭️  Index already exists: {e}")
+                    db.session.rollback()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Company Assets table fixed! Added columns: {", ".join(added_columns) if added_columns else "All columns already exist"}',
+                'columns_added': added_columns
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'This fix is only for PostgreSQL databases'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"❌ Error fixing company_assets table: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
