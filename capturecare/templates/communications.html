@@ -64,6 +64,8 @@
                     <option value="">All Channels</option>
                     <option value="sms">📱 SMS Only</option>
                     <option value="email">📧 Email Only</option>
+                    <option value="voice">📞 Voice Calls</option>
+                    <option value="video">📹 Video Calls</option>
                 </select>
             </div>
 
@@ -550,8 +552,20 @@ function appendCorrespondence(correspondence) {
 }
 
 function createCorrespondenceCard(msg) {
-    const channelIcon = msg.channel === 'sms' ? 'fa-sms' : 'fa-envelope';
-    const channelColor = msg.channel === 'sms' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
+    // Channel icon and color
+    let channelIcon = 'fa-envelope';
+    let channelColor = 'bg-blue-100 text-blue-800';
+    
+    if (msg.channel === 'sms') {
+        channelIcon = 'fa-sms';
+        channelColor = 'bg-green-100 text-green-800';
+    } else if (msg.channel === 'voice') {
+        channelIcon = 'fa-phone';
+        channelColor = 'bg-purple-100 text-purple-800';
+    } else if (msg.channel === 'video') {
+        channelIcon = 'fa-video';
+        channelColor = 'bg-pink-100 text-pink-800';
+    }
     const directionIcon = msg.direction === 'inbound' ? 'fa-arrow-down' : 'fa-arrow-up';
     const directionColor = msg.direction === 'inbound' ? 'bg-purple-100 text-purple-800' : 'bg-orange-100 text-orange-800';
     
