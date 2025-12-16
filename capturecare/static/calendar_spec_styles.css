@@ -54,7 +54,7 @@
     justify-content: center;
     padding: 6px 8px;
     color: white;
-    cursor: pointer;
+    cursor: move;
     transition: all 150ms ease;
     box-shadow: 0 2px 6px rgba(0,0,0,0.15);
     position: relative;
@@ -62,10 +62,15 @@
     background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(0,0,0,0.1));
 }
 
-.appointment-badge-new:hover {
+/* Parent div that wraps the badge should handle pointer events */
+[draggable="true"]:hover .appointment-badge-new {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    z-index: 10;
+}
+
+[draggable="true"]:active .appointment-badge-new {
+    cursor: grabbing;
+    opacity: 0.8;
 }
 
 .appointment-badge-new::before {

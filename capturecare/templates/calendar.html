@@ -928,14 +928,17 @@ async function loadWeekGrid() {
                     practitionerColor: practitionerColor
                 }, practitionerColor);
                 
-                cellClass += 'p-1 cursor-pointer';
+                cellClass += 'p-1 cursor-move';
                 cellContent = `<div class="flex items-center justify-center relative" 
                     draggable="true"
                     ondragstart="handleDragStart(event, '${dateStr}', '${timeStr}', '${appointmentId}')"
-                    ondragend="handleDragEnd(event)">
+                    ondragend="handleDragEnd(event)"
+                    onclick="event.stopPropagation(); if (!window.isDragging) { openAppointmentDrawer(${appointmentId}); }"
+                    onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(booking).replace(/"/g, '&quot;')})"
+                    onmouseleave="hideTooltip()">
                     ${badgeHtml}
                 </div>`;
-                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}')` : `openAppointmentDrawer(${appointmentId})`;
+                onClickAction = '';
             } else if (isAvailable) {
                 // Show available slot with hover tooltip
                 if (blockMode) {
@@ -1257,14 +1260,17 @@ async function loadDayGrid() {
                     practitionerColor: practitionerColor
                 }, practitionerColor);
                 
-                cellClass += 'p-1 cursor-pointer';
+                cellClass += 'p-1 cursor-move';
                 cellContent = `<div class="flex items-center justify-center relative" 
                     draggable="true"
                     ondragstart="handleDragStart(event, '${dateStr}', '${timeStr}', '${appointmentId}')"
-                    ondragend="handleDragEnd(event)">
+                    ondragend="handleDragEnd(event)"
+                    onclick="event.stopPropagation(); if (!window.isDragging) { openAppointmentDrawer(${appointmentId}); }"
+                    onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(booking).replace(/"/g, '&quot;')})"
+                    onmouseleave="hideTooltip()">
                     ${badgeHtml}
                 </div>`;
-                onClickAction = blockMode ? `toggleBlockSlot('${dateStr}', '${timeStr}', ${practId})` : `openAppointmentDrawer(${appointmentId})`;
+                onClickAction = '';
             } else if (isAvailable) {
                 if (blockMode) {
                     cellClass += 'bg-green-500 text-white hover:bg-green-600 cursor-pointer ring-2 ring-yellow-400';
@@ -2561,6 +2567,8 @@ function handleDragStart(event, dateStr, timeStr, appointmentId) {
         return false;
     }
     
+    window.isDragging = true;
+    
     draggedAppointment = {
         id: appointmentId,
         date: dateStr,
@@ -2593,6 +2601,11 @@ function handleDragEnd(event) {
     if (draggedAppointment) {
         console.log('Drag ended without drop');
     }
+    
+    // Reset dragging flag after a short delay to prevent click from firing
+    setTimeout(() => {
+        window.isDragging = false;
+    }, 100);
 }
 
 // Month view drag handlers
@@ -3135,12 +3148,9 @@ function createAppointmentBadge(appointment, practitionerColor) {
     
     return `
         <div class="appointment-badge-new ${stateClass}" 
-             style="background-color: ${practitionerColor}; border-left: 4px solid ${practitionerColor};"
+             style="background-color: ${practitionerColor}; border-left: 4px solid ${practitionerColor}; pointer-events: none;"
              data-appointment-id="${appointment.appointmentId}"
-             data-patient-id="${appointment.patientId}"
-             onclick="event.stopPropagation(); openAppointmentDrawer(${appointment.appointmentId})"
-             onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(appointment).replace(/"/g, '&quot;')})"
-             onmouseleave="hideTooltip()">
+             data-patient-id="${appointment.patientId}">
             
             <div class="appointment-time" style="font-weight: 700; font-size: 11px; color: rgba(255,255,255,0.95); margin-bottom: 2px;">
                 ${icons}${timeFormatted}
