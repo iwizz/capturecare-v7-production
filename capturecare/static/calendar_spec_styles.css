@@ -15,7 +15,7 @@
     --state-late-border: #FFC300;
 }
 
-/* Appointment Badge (90px x 32px pill) */
+/* Appointment Badge (90px x 32px pill) - Original */
 .appointment-badge {
     width: 90px;
     height: 32px;
@@ -41,6 +41,41 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     z-index: 10;
+}
+
+/* New Appointment Badge - Clearer Rectangle with Name & Time */
+.appointment-badge-new {
+    min-width: 120px;
+    min-height: 50px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 6px 8px;
+    color: white;
+    cursor: pointer;
+    transition: all 150ms ease;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(0,0,0,0.1));
+}
+
+.appointment-badge-new:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    z-index: 10;
+}
+
+.appointment-badge-new::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: rgba(255,255,255,0.5);
 }
 
 .appointment-badge .practitioner-initials {
@@ -92,17 +127,24 @@
 
 
 /* State Overlays */
-.appointment-badge.cancelled {
+.appointment-badge.cancelled, .appointment-badge-new.cancelled {
     border: 2px solid var(--state-cancelled-border);
-    background-color: rgba(255, 78, 78, 0.2);
+    opacity: 0.6;
 }
 
-.appointment-badge.no-show {
+.appointment-badge.no-show, .appointment-badge-new.no-show {
     border: 2px solid var(--state-noshow-border);
+    opacity: 0.7;
 }
 
-.appointment-badge.late {
+.appointment-badge.late, .appointment-badge-new.late {
     border: 2px solid var(--state-late-border);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
 }
 
 /* Available Slot */

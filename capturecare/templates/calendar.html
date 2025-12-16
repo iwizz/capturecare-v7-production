@@ -3111,32 +3111,21 @@ function getPatientDisplay(patientName, isNew = false) {
 // Create appointment badge HTML (90px x 32px pill)
 function createAppointmentBadge(appointment, practitionerColor) {
     const practName = appointment.practitionerName || 'Unknown';
-    const practInitials = getPractitionerInitials(practName);
     const patientName = appointment.patientName || 'Unknown';
     const isNew = appointment.isNewPatient || false;
     
-    // Bottom line content: Patient initials/name, optionally prepended with 🆕
-    // Spec: "If new patient → prepend: 🆕" and "Bottom line: Patient initials OR optional: Full name"
-    // We use getPatientDisplay which returns "🆕 JS" or "🆕 John Smith"
-    // We strip existing emojis from getPatientDisplay if we are adding them manually, 
-    // BUT getPatientDisplay puts 🆕 at the start, which matches the spec "prepend".
-    // However, the spec also says "New patient 🆕 Badge bottom".
-    // Let's use getPatientDisplay but without the emoji if we want to control it more, 
-    // or just use it as is since it puts it at the start of the string which is the bottom line.
-    // Actually, getPatientDisplay adds '🆕 ' prefix.
-    const patientDisplay = getPatientDisplay(patientName, isNew);
+    // Format time nicely (e.g., "2:30 PM")
+    const startTime = appointment.startTime || '';
+    const timeFormatted = startTime ? formatTime12Hour(startTime) : '';
     
-    // Indicators
-    let topRightIcons = '';
-    if (appointment.isUrgent) topRightIcons += '<span class="indicator-icon">🚨</span>';
-    if (appointment.isTelehealth) topRightIcons += '<span class="indicator-icon">💻</span>';
-    if (appointment.isHomeVisit) topRightIcons += '<span class="indicator-icon">🚗</span>';
-    
-    let bottomLeftIcons = '';
-    if (appointment.isLongConsultation) bottomLeftIcons += '<span class="indicator-icon">⏱️</span>';
-    
-    let bottomRightIcons = '';
-    if (appointment.isOverlapping) bottomRightIcons += '<span class="indicator-icon">🔁</span>';
+    // Indicators as icons
+    let icons = '';
+    if (isNew) icons += '🆕 ';
+    if (appointment.isUrgent) icons += '🚨 ';
+    if (appointment.isTelehealth) icons += '💻 ';
+    if (appointment.isHomeVisit) icons += '🚗 ';
+    if (appointment.isLongConsultation) icons += '⏱️ ';
+    if (appointment.isOverlapping) icons += '🔁 ';
     
     // State class
     let stateClass = '';
@@ -3145,20 +3134,23 @@ function createAppointmentBadge(appointment, practitionerColor) {
     else if (appointment.status === 'late') stateClass = 'late';
     
     return `
-        <div class="appointment-badge ${stateClass}" 
-             style="background-color: ${practitionerColor};"
+        <div class="appointment-badge-new ${stateClass}" 
+             style="background-color: ${practitionerColor}; border-left: 4px solid ${practitionerColor};"
              data-appointment-id="${appointment.appointmentId}"
              data-patient-id="${appointment.patientId}"
              onclick="event.stopPropagation(); openAppointmentDrawer(${appointment.appointmentId})"
              onmouseenter="showAppointmentTooltip(event, ${JSON.stringify(appointment).replace(/"/g, '&quot;')})"
              onmouseleave="hideTooltip()">
             
-            <div class="practitioner-initials">${practInitials}</div>
-            <div class="patient-info">${patientDisplay}</div>
-            
-            <div class="badge-top-right">${topRightIcons}</div>
-            <div class="badge-bottom-left">${bottomLeftIcons}</div>
-            <div class="badge-bottom-right">${bottomRightIcons}</div>
+            <div class="appointment-time" style="font-weight: 700; font-size: 11px; color: rgba(255,255,255,0.95); margin-bottom: 2px;">
+                ${icons}${timeFormatted}
+            </div>
+            <div class="appointment-patient" style="font-weight: 600; font-size: 12px; color: white; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${patientName}
+            </div>
+            <div class="appointment-practitioner" style="font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${practName}
+            </div>
         </div>
     `;
 }
