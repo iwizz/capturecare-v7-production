@@ -2047,7 +2047,7 @@ def create_patient_note(patient_id):
             })
         else:
             # Handle JSON request (legacy, no file)
-            data = request.get_json()
+            data = request.get_json() or {}
             
             # Extract subject from first line if not provided
             note_text = data.get('note_text', '')
@@ -2056,10 +2056,15 @@ def create_patient_note(patient_id):
                 # Use first line as subject (max 200 chars)
                 first_line = note_text.split('\n')[0].strip()
                 subject = first_line[:200] if len(first_line) > 200 else first_line
+
+            raw_appointment_id = data.get('appointment_id')
+            appointment_id = None
+            if raw_appointment_id not in (None, '', 'null'):
+                appointment_id = int(raw_appointment_id)
             
             note = PatientNote(
                 patient_id=patient_id,
-                appointment_id=data.get('appointment_id'),
+                appointment_id=appointment_id,
                 subject=subject,
                 note_text=note_text,
                 note_type=data.get('note_type', 'manual'),
@@ -2093,14 +2098,29 @@ def update_patient_note(note_id):
     """Update an existing patient note"""
     try:
         note = PatientNote.query.get_or_404(note_id)
-        data = request.get_json()
-        
+        data = request.get_json() or {}
+
+        def _normalize_appointment_id(raw):
+            if raw is None or raw == '' or raw == 'null':
+                return None
+            return int(raw)
+
         if 'note_text' in data:
             note.note_text = data['note_text']
         if 'note_type' in data:
             note.note_type = data['note_type']
         if 'author' in data:
             note.author = data['author']
+        if 'appointment_id' in data:
+            note.appointment_id = _normalize_appointment_id(data.get('appointment_id'))
+
+        # Persist subject when provided; otherwise recompute from note_text when text changes
+        if 'subject' in data and data.get('subject') is not None:
+            note.subject = data.get('subject') or ''
+        elif 'note_text' in data:
+            note_text = data.get('note_text') or ''
+            first_line = note_text.split('\n')[0].strip() if note_text else ''
+            note.subject = first_line[:200] if len(first_line) > 200 else first_line
         
         db.session.commit()
         
@@ -2108,9 +2128,11 @@ def update_patient_note(note_id):
             'success': True,
             'note': {
                 'id': note.id,
+                'subject': note.subject,
                 'note_text': note.note_text,
                 'note_type': note.note_type,
                 'author': note.author,
+                'appointment_id': note.appointment_id,
                 'created_at': note.created_at.isoformat(),
                 'updated_at': note.updated_at.isoformat()
             }

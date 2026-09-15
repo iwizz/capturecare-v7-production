@@ -3017,9 +3017,13 @@ async function saveAppointment(event) {
     event.preventDefault();
     
     const formData = new FormData(event.target);
+    const bookDate = document.getElementById('bookDate')?.value || '';
+    const bookTime = document.getElementById('bookTime')?.value || '';
     const appointmentData = {
         title: formData.get('title'),
         appointment_type: formData.get('appointment_type'),
+        date: bookDate || undefined,
+        time: bookTime || undefined,
         start_time: formData.get('start_time'),
         duration_minutes: parseInt(formData.get('duration_minutes')),
         location: formData.get('location'),
@@ -3245,18 +3249,26 @@ async function updateAppointment(event) {
     
     const appointmentId = document.getElementById('editAppointmentId').value;
     const formData = new FormData(event.target);
+    const editDate = document.getElementById('editDate')?.value || '';
+    const editTime = document.getElementById('editTime')?.value || '';
+    const practitionerRaw = formData.get('practitioner') || document.getElementById('editPractitioner')?.value;
     const appointmentData = {
         title: formData.get('title'),
         appointment_type: formData.get('appointment_type'),
+        // Prefer date/time so calendar handlers / parsers stick the reschedule
+        date: editDate || undefined,
+        time: editTime || undefined,
         start_time: formData.get('start_time'),
         duration_minutes: parseInt(formData.get('duration_minutes')),
         location: formData.get('location'),
-        practitioner: formData.get('practitioner'),
+        practitioner: practitionerRaw,
+        practitioner_id: practitionerRaw ? parseInt(practitionerRaw, 10) : null,
         notes: formData.get('notes'),
         send_email: formData.get('send_email') === 'on'
     };
     
     try {
+        // Use patient appointment PUT (now parses date/time) so reschedule sticks
         const response = await fetch(`/patients/{{ patient.id }}/appointments/${appointmentId}`, {
             method: 'PUT',
             headers: {
@@ -4311,8 +4323,9 @@ async function saveTargetRanges() {
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Link to Appointment (Optional)</label>
                 <select id="noteAppointment" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                    <option value="">No appointment</option>
+                    <option value="">General note (no appointment)</option>
                 </select>
+                <p class="text-xs text-gray-500 mt-1">Leave as general note, or link this note to a specific appointment.</p>
             </div>
             
             <div class="mb-4">
@@ -4336,8 +4349,8 @@ async function saveTargetRanges() {
             </div>
             
             <div class="flex gap-2">
-                <button type="submit" class="px-6 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
-                    <i class="fas fa-save mr-2"></i>Save Note
+                <button type="submit" id="noteSaveBtn" class="px-6 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-save mr-2"></i><span id="noteSaveBtnLabel">Save Note</span>
                 </button>
                 <button type="button" onclick="closeNoteModal()" class="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-semibold">
                     <i class="fas fa-times mr-2"></i>Cancel
@@ -5167,6 +5180,11 @@ async function loadNotes() {
                                         class="px-3 py-1.5 bg-brand-bright-teal hover:bg-teal-600 text-white rounded text-xs transition font-semibold whitespace-nowrap">
                                     <i class="fas fa-eye mr-1"></i>View
                                 </button>
+                                <button type="button" onclick='editNote(${note.id})'
+                                        class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs transition font-semibold whitespace-nowrap"
+                                        title="Edit note">
+                                    <i class="fas fa-edit mr-1"></i>Edit
+                                </button>
                                 <button onclick='deleteNote(${note.id})'
                                         class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition font-semibold whitespace-nowrap">
                                     <i class="fas fa-trash mr-1"></i>Delete
@@ -5321,29 +5339,35 @@ function closeNoteDetailModal() {
 
 async function loadAppointmentsForNote() {
     try {
-        const response = await fetch(`/api/patients/{{ patient.id }}/appointments`);
+        // Route is /patients/<id>/appointments (not under /api/)
+        const response = await fetch(`/patients/{{ patient.id }}/appointments`);
         const data = await response.json();
         
         const select = document.getElementById('noteAppointment');
-        select.innerHTML = '<option value="">No appointment</option>';
+        select.innerHTML = '<option value="">General note (no appointment)</option>';
         
-        if (data.appointments) {
-            data.appointments.forEach(appt => {
-                const date = new Date(appt.start_time).toLocaleString('en-AU', {
-                    timeZone: 'Australia/Sydney',
-                    month: 'short', day: 'numeric', year: 'numeric'
-                });
-                select.innerHTML += `<option value="${appt.id}">${appt.appointment_type} - ${date}</option>`;
+        const appointments = data.appointments || [];
+        appointments.forEach(appt => {
+            const date = new Date(appt.start_time).toLocaleString('en-AU', {
+                timeZone: 'Australia/Sydney',
+                month: 'short', day: 'numeric', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
             });
-        }
+            const label = appt.appointment_type || appt.type || appt.title || 'Appointment';
+            select.innerHTML += `<option value="${appt.id}">${label} — ${date}</option>`;
+        });
+        return appointments;
     } catch (error) {
         console.error('Error loading appointments:', error);
+        return [];
     }
 }
 
 function openNoteModal() {
     currentNoteId = null;
     document.getElementById('noteModalTitle').textContent = 'Add Note';
+    const saveLabel = document.getElementById('noteSaveBtnLabel');
+    if (saveLabel) saveLabel.textContent = 'Save Note';
     document.getElementById('noteForm').reset();
     document.getElementById('noteId').value = '';
     loadAppointmentsForNote();
@@ -5361,47 +5385,57 @@ async function saveNote(event) {
     const noteId = document.getElementById('noteId').value;
     const noteText = document.getElementById('noteText').value;
     const noteType = document.getElementById('noteType').value;
-    const appointmentId = document.getElementById('noteAppointment').value;
+    const appointmentRaw = document.getElementById('noteAppointment').value;
+    const appointmentId = appointmentRaw ? parseInt(appointmentRaw, 10) : null;
     const fileInput = document.getElementById('noteAttachment');
+    const saveBtn = document.getElementById('noteSaveBtn');
+    const saveLabel = document.getElementById('noteSaveBtnLabel');
+    const originalLabel = saveLabel ? saveLabel.textContent : 'Save Note';
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        if (saveLabel) saveLabel.textContent = noteId ? 'Updating...' : 'Saving...';
+    }
     
     try {
         let response;
+        const payload = {
+            note_text: noteText,
+            note_type: noteType,
+            appointment_id: appointmentId,
+            author: 'Admin'
+        };
+
         if (noteId) {
-            // Update existing note (file upload not supported for edits)
+            // Update existing note — persist text, type, and appointment link
+            // (file upload not supported for edits)
             response = await fetch(`/api/notes/${noteId}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({note_text: noteText, note_type: noteType})
+                body: JSON.stringify(payload)
             });
         } else {
-            // Create new note
-            const hasFile = fileInput.files && fileInput.files.length > 0;
+            // Create new note (null appointment_id = general note)
+            const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
             
             if (hasFile) {
-                // Use FormData for file upload
+                // Keep Cloud Run attachment upload support
                 const formData = new FormData();
                 formData.append('note_text', noteText);
                 formData.append('note_type', noteType);
-                formData.append('appointment_id', appointmentId || '');
+                formData.append('appointment_id', appointmentId != null ? String(appointmentId) : '');
                 formData.append('author', 'Admin');
                 formData.append('attachment', fileInput.files[0]);
                 
                 response = await fetch(`/api/patients/{{ patient.id }}/notes`, {
                     method: 'POST',
                     body: formData
-                    // Don't set Content-Type header - browser will set it with boundary for multipart
                 });
             } else {
-                // Use JSON for text-only note
                 response = await fetch(`/api/patients/{{ patient.id }}/notes`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        note_text: noteText,
-                        note_type: noteType,
-                        appointment_id: appointmentId || null,
-                        author: 'Admin'
-                    })
+                    body: JSON.stringify(payload)
                 });
             }
         }
@@ -5410,14 +5444,23 @@ async function saveNote(event) {
         
         if (data.success) {
             closeNoteModal();
-            loadNotes();
-            alert('✅ Note saved successfully!');
+            await loadNotes();
+            if (typeof showNotification === 'function') {
+                showNotification(noteId ? '✅ Note updated' : '✅ Note saved', 'success');
+            } else {
+                alert(noteId ? '✅ Note updated' : '✅ Note saved');
+            }
         } else {
-            alert('Error saving note: ' + data.error);
+            alert('Error saving note: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error saving note:', error);
         alert('Error saving note: ' + error.message);
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            if (saveLabel) saveLabel.textContent = originalLabel;
+        }
     }
 }
 
@@ -5426,23 +5469,27 @@ async function editNote(noteId) {
         const response = await fetch(`/api/patients/{{ patient.id }}/notes`);
         const data = await response.json();
         
-        const note = data.notes.find(n => n.id === noteId);
-        if (note) {
-            currentNoteId = noteId;
-            document.getElementById('noteModalTitle').textContent = 'Edit Note';
-            document.getElementById('noteId').value = noteId;
-            document.getElementById('noteText').value = note.note_text;
-            document.getElementById('noteType').value = note.note_type;
-            loadAppointmentsForNote();
-            if (note.appointment_id) {
-                setTimeout(() => {
-                    document.getElementById('noteAppointment').value = note.appointment_id;
-                }, 100);
-            }
-            document.getElementById('noteModal').classList.remove('hidden');
+        const note = (data.notes || []).find(n => n.id === noteId);
+        if (!note) {
+            alert('Could not find that note to edit.');
+            return;
         }
+
+        currentNoteId = noteId;
+        document.getElementById('noteModalTitle').textContent = 'Edit Note';
+        const saveLabel = document.getElementById('noteSaveBtnLabel');
+        if (saveLabel) saveLabel.textContent = 'Update Note';
+        document.getElementById('noteId').value = noteId;
+        document.getElementById('noteText').value = note.note_text || '';
+        document.getElementById('noteType').value = note.note_type || 'manual';
+        await loadAppointmentsForNote();
+        document.getElementById('noteAppointment').value = note.appointment_id
+            ? String(note.appointment_id)
+            : '';
+        document.getElementById('noteModal').classList.remove('hidden');
     } catch (error) {
         console.error('Error loading note:', error);
+        alert('Error loading note for edit');
     }
 }
 

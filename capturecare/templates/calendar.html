@@ -2086,8 +2086,14 @@ document.getElementById('appointmentForm').addEventListener('submit', async func
         location: document.getElementById('appointmentLocation').value,
         notes: document.getElementById('appointmentNotes').value
     };
+
+    // Calendar create+update both go to /api/calendar/appointments (date/time applied there).
+    // Include id in the body for updates — path-only PUT is also supported as a fallback.
+    if (appointmentId) {
+        formData.id = parseInt(appointmentId, 10);
+    }
     
-    const url = appointmentId 
+    const url = appointmentId
         ? `/api/calendar/appointments/${appointmentId}`
         : '/api/calendar/appointments';
     const method = appointmentId ? 'PUT' : 'POST';
@@ -2102,7 +2108,19 @@ document.getElementById('appointmentForm').addEventListener('submit', async func
         const data = await response.json();
         
         if (data.success) {
-            showNotification('✅ Appointment saved successfully!', 'success');
+            // Build success message with notification status
+            let successMessage = appointmentId
+                ? '✅ Appointment updated successfully!'
+                : '✅ Appointment booked successfully!';
+            if (data.notification_sent) {
+                if (data.notification_sent.email) {
+                    successMessage += ' Email confirmation has been sent.';
+                }
+                if (data.notification_sent.sms) {
+                    successMessage += ' SMS confirmation has been sent.';
+                }
+            }
+            showNotification(successMessage, 'success');
             closeAppointmentModal();
             // if (calendar) calendar.refetchEvents(); // Reload current view instead
         if (currentView === 'month') loadMonthGrid();

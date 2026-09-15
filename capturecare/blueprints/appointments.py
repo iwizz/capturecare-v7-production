@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, current_app, fla
 from flask_login import login_required, current_user
 from ..models import db, Appointment, User, Patient, NotificationTemplate, AvailabilityPattern, AvailabilityException, UserAvailability, Device, HealthData
 from datetime import datetime, timedelta, time
+import pytz
 import logging
 import os
 from sqlalchemy import orm
@@ -241,13 +242,97 @@ def get_calendar_events():
         except:
             pass
 
+
+def _sydney_now_naive():
+    """Return current Australia/Sydney time as naive datetime for local comparisons."""
+    sydney_tz = pytz.timezone('Australia/Sydney')
+    return datetime.now(sydney_tz).replace(tzinfo=None)
+
+
+def _validate_not_in_past(start_time):
+    if start_time < _sydney_now_naive():
+        return jsonify({'success': False, 'error': 'Appointments cannot be booked in the past.'}), 400
+    return None
+
+
+def _parse_appointment_date_time(data):
+    """Parse date/time/duration (or start_time/end_time) into naive AEST local datetimes."""
+    aest = pytz.timezone('Australia/Sydney')
+    duration_minutes = int(data.get('duration_minutes', 60) or 60)
+
+    date_str = data.get('date')
+    time_str = data.get('time')
+    if date_str and time_str:
+        date_parts = str(date_str).split('-')
+        time_parts = str(time_str).split(':')
+        if len(date_parts) == 3 and len(time_parts) >= 2:
+            year, month, day = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
+            hour, minute = int(time_parts[0]), int(time_parts[1])
+            start_time_naive = datetime(year, month, day, hour, minute)
+            start_time = aest.localize(start_time_naive)
+        else:
+            start_time_naive = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M')
+            start_time = aest.localize(start_time_naive)
+        end_time = start_time + timedelta(minutes=duration_minutes)
+        return start_time.replace(tzinfo=None), end_time.replace(tzinfo=None), duration_minutes
+
+    start_time_str = data.get('start_time')
+    end_time_str = data.get('end_time')
+    if not start_time_str:
+        raise ValueError('Appointment requires date/time or start_time')
+
+    if 'Z' in start_time_str or '+' in start_time_str or start_time_str.count('-') > 2:
+        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+        if start_time.tzinfo:
+            start_time = start_time.astimezone(aest)
+        else:
+            start_time = aest.localize(start_time)
+    else:
+        start_time_naive = datetime.fromisoformat(
+            start_time_str.split('T')[0] + 'T' + start_time_str.split('T')[1].split('+')[0].split('Z')[0]
+        )
+        start_time = aest.localize(start_time_naive)
+
+    if end_time_str:
+        if 'Z' in end_time_str or '+' in end_time_str or end_time_str.count('-') > 2:
+            end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+            if end_time.tzinfo:
+                end_time = end_time.astimezone(aest)
+            else:
+                end_time = aest.localize(end_time)
+        else:
+            end_time_naive = datetime.fromisoformat(
+                end_time_str.split('T')[0] + 'T' + end_time_str.split('T')[1].split('+')[0].split('Z')[0]
+            )
+            end_time = aest.localize(end_time_naive)
+        duration_minutes = int((end_time - start_time).total_seconds() / 60)
+    else:
+        end_time = start_time + timedelta(minutes=duration_minutes)
+
+    return start_time.replace(tzinfo=None), end_time.replace(tzinfo=None), duration_minutes
+
+
+def _appointment_time_changed(old_details, appointment):
+    """True when start or end time differs from the captured pre-update details."""
+    if not old_details:
+        return False
+    old_start = old_details.get('start_time')
+    old_end = old_details.get('end_time')
+    if old_start and appointment.start_time and old_start != appointment.start_time:
+        return True
+    if old_end and appointment.end_time and old_end != appointment.end_time:
+        return True
+    return False
+
+
 @appointments_bp.route('/api/calendar/appointments', methods=['POST', 'PUT'])
+@appointments_bp.route('/api/calendar/appointments/<int:appointment_id>', methods=['PUT'])
 @login_required
-def create_or_update_calendar_appointment():
+def create_or_update_calendar_appointment(appointment_id=None):
     """Create or update appointment from calendar UI (accepts date/time/duration format)"""
     try:
-        data = request.get_json()
-        appointment_id = request.args.get('id') or data.get('id')
+        data = request.get_json() or {}
+        appointment_id = appointment_id or request.args.get('id') or data.get('id')
         
         # Extract data from request
         patient_id = data.get('patient_id')
@@ -258,18 +343,24 @@ def create_or_update_calendar_appointment():
         location = data.get('location')
         status = data.get('status', 'scheduled')
         
-        # Parse date and time
-        date_str = data.get('date')
-        time_str = data.get('time')
-        duration_minutes = int(data.get('duration_minutes', 60))
+        start_time, end_time, duration_minutes = _parse_appointment_date_time(data)
+
+        past_error = _validate_not_in_past(start_time)
+        if past_error:
+            return past_error
         
-        # Combine date and time into datetime objects
-        start_time = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M')
-        end_time = start_time + timedelta(minutes=duration_minutes)
-        
+        old_appointment_details = None
         if appointment_id:
-            # Update existing appointment
+            # Update existing appointment - capture old details for notification
             appointment = Appointment.query.get_or_404(appointment_id)
+            old_appointment_details = {
+                'start_time': appointment.start_time,
+                'end_time': appointment.end_time,
+                'location': appointment.location,
+                'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else None,
+                'appointment_type': appointment.appointment_type,
+                'duration_minutes': appointment.duration_minutes
+            }
             appointment.patient_id = patient_id
             appointment.practitioner_id = practitioner_id
             appointment.title = title
@@ -332,14 +423,76 @@ def create_or_update_calendar_appointment():
             except Exception as e:
                 logger.error(f"Failed to sync to Google Calendar: {e}")
         
+        # Get patient and practitioner for response
+        patient = Patient.query.get(patient_id) if patient_id else None
+        patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown Patient"
+        practitioner = User.query.get(practitioner_id) if practitioner_id else None
+        practitioner_name = practitioner.full_name if practitioner else "Unassigned"
+        
+        # Send notifications for new bookings; for updates only when time actually changes
+        notification_result = {'sms': False, 'email': False}
+        if patient_id:
+            try:
+                if patient:
+                    from ..notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    try:
+                        if appointment_id:
+                            if _appointment_time_changed(old_appointment_details, appointment):
+                                result = notification_service.send_appointment_update(
+                                    patient=patient,
+                                    appointment=appointment,
+                                    old_appointment_details=old_appointment_details,
+                                    user_id=current_user.id
+                                )
+                                if result.get('sms_sent'):
+                                    notification_result['sms'] = True
+                                    logger.info(f"✅ Sent appointment update SMS for appointment {appointment.id}")
+                                if result.get('email_sent'):
+                                    notification_result['email'] = True
+                                    logger.info(f"✅ Sent appointment update email for appointment {appointment.id}")
+                                if not result.get('sms_sent') and not result.get('email_sent'):
+                                    logger.warning(f"⚠️ No notifications sent for appointment {appointment.id} - check configuration")
+                            else:
+                                logger.info(f"Skipping update notification for appointment {appointment.id} — time unchanged")
+                                result = {'sms_sent': False, 'email_sent': False}
+                        else:
+                            # New appointment confirmation
+                            result = notification_service.send_appointment_confirmation(
+                                patient=patient,
+                                appointment=appointment,
+                                user_id=current_user.id
+                            )
+                            if result.get('sms_sent'):
+                                notification_result['sms'] = True
+                                logger.info(f"✅ Sent appointment confirmation SMS for appointment {appointment.id}")
+                            if result.get('email_sent'):
+                                notification_result['email'] = True
+                                logger.info(f"✅ Sent appointment confirmation email for appointment {appointment.id}")
+                        
+                            if not result.get('sms_sent') and not result.get('email_sent'):
+                                logger.warning(f"⚠️ No notifications sent for appointment {appointment.id} - check configuration")
+                    except Exception as notif_error:
+                        logger.error(f"❌ Error sending notifications for appointment {appointment.id}: {notif_error}", exc_info=True)
+                        
+            except Exception as notif_error:
+                logger.error(f"Error sending appointment notification: {notif_error}", exc_info=True)
+                # Don't fail the appointment creation/update if notification fails
+        
         return jsonify({
             'success': True,
             'appointment': {
                 'id': appointment.id,
                 'title': appointment.title,
                 'start': appointment.start_time.isoformat(),
-                'end': appointment.end_time.isoformat()
-            }
+                'end': appointment.end_time.isoformat(),
+                'patient_name': patient_name,
+                'practitioner_name': practitioner_name,
+                'start_time': appointment.start_time.isoformat(),
+                'end_time': appointment.end_time.isoformat()
+            },
+            'notification_sent': notification_result
         })
     except Exception as e:
         logger.error(f"Error creating/updating calendar appointment: {e}", exc_info=True)
@@ -523,19 +676,27 @@ def manage_appointment(appointment_id):
             
     elif request.method == 'PUT':
         try:
-            data = request.get_json()
+            data = request.get_json() or {}
             
-            if 'start_time' in data:
-                start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-                if start_time.tzinfo:
-                    start_time = start_time.replace(tzinfo=None)
+            # Capture old appointment details before updating
+            old_appointment_details = {
+                'start_time': appointment.start_time,
+                'end_time': appointment.end_time,
+                'location': appointment.location,
+                'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else None,
+                'appointment_type': appointment.appointment_type,
+                'duration_minutes': appointment.duration_minutes
+            }
+
+            # Accept date/time/duration (modal edit) or start_time/end_time (drag-move style)
+            if (data.get('date') and data.get('time')) or data.get('start_time'):
+                start_time, end_time, duration_minutes = _parse_appointment_date_time(data)
+                past_error = _validate_not_in_past(start_time)
+                if past_error:
+                    return past_error
                 appointment.start_time = start_time
-                
-            if 'end_time' in data:
-                end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-                if end_time.tzinfo:
-                    end_time = end_time.replace(tzinfo=None)
                 appointment.end_time = end_time
+                appointment.duration_minutes = duration_minutes
                 
             if 'title' in data:
                 appointment.title = data['title']
@@ -567,7 +728,42 @@ def manage_appointment(appointment_id):
                 except Exception as e:
                     logger.error(f"Failed to update Google Calendar: {e}")
             
-            return jsonify({'success': True})
+            # Notify only when appointment time actually changed
+            notification_result = {'sms': False, 'email': False}
+            if appointment.patient and _appointment_time_changed(old_appointment_details, appointment):
+                try:
+                    from ..notification_service import NotificationService
+                    notification_service = NotificationService()
+                    
+                    result = notification_service.send_appointment_update(
+                        patient=appointment.patient,
+                        appointment=appointment,
+                        old_appointment_details=old_appointment_details,
+                        user_id=current_user.id
+                    )
+                    if result.get('sms_sent'):
+                        notification_result['sms'] = True
+                        logger.info(f"✅ Sent appointment update SMS for appointment {appointment.id}")
+                    if result.get('email_sent'):
+                        notification_result['email'] = True
+                        logger.info(f"✅ Sent appointment update email for appointment {appointment.id}")
+                except Exception as notif_error:
+                    logger.error(f"❌ Error sending update notification for appointment {appointment.id}: {notif_error}", exc_info=True)
+            elif appointment.patient:
+                logger.info(f"Skipping update notification for appointment {appointment.id} — time unchanged")
+            
+            return jsonify({
+                'success': True,
+                'appointment': {
+                    'id': appointment.id,
+                    'title': appointment.title,
+                    'start_time': appointment.start_time.isoformat() if appointment.start_time else None,
+                    'end_time': appointment.end_time.isoformat() if appointment.end_time else None,
+                    'patient_name': f"{appointment.patient.first_name} {appointment.patient.last_name}" if appointment.patient else None,
+                    'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else None,
+                },
+                'notification_sent': notification_result
+            })
         except Exception as e:
             db.session.rollback()
             return jsonify({'success': False, 'error': str(e)}), 400
@@ -2316,24 +2512,13 @@ def get_patient_appointments(patient_id):
 def add_patient_appointment(patient_id):
     """Add a new appointment for a specific patient"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        # Parse start_time
-        start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-        if start_time.tzinfo:
-            start_time = start_time.replace(tzinfo=None)
-        
-        # VALIDATION: Only allow future appointments
-        now = datetime.now()
-        if start_time < now:
-            return jsonify({
-                'success': False,
-                'error': 'Cannot book appointments in the past. Please select a future date and time.'
-            }), 400
-        
-        # Calculate end_time from start_time + duration
-        duration_minutes = int(data.get('duration_minutes', 60))
-        end_time = start_time + timedelta(minutes=duration_minutes)
+        # Accept date/time (modal) or start_time (legacy) via shared parser
+        start_time, end_time, duration_minutes = _parse_appointment_date_time(data)
+        past_error = _validate_not_in_past(start_time)
+        if past_error:
+            return past_error
         
         new_appointment = Appointment(
             patient_id=patient_id,
@@ -2456,20 +2641,27 @@ def update_patient_appointment(patient_id, appointment_id):
     """Update an existing appointment for a specific patient"""
     try:
         appointment = Appointment.query.filter_by(id=appointment_id, patient_id=patient_id).first_or_404()
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        if 'start_time' in data:
-            start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-            if start_time.tzinfo:
-                start_time = start_time.replace(tzinfo=None)
+        # Capture old appointment details before updating
+        old_appointment_details = {
+            'start_time': appointment.start_time,
+            'end_time': appointment.end_time,
+            'location': appointment.location,
+            'practitioner_name': appointment.assigned_practitioner.full_name if appointment.assigned_practitioner else None,
+            'appointment_type': appointment.appointment_type,
+            'duration_minutes': appointment.duration_minutes
+        }
+
+        if (data.get('date') and data.get('time')) or data.get('start_time'):
+            start_time, end_time, duration_minutes = _parse_appointment_date_time(data)
+            past_error = _validate_not_in_past(start_time)
+            if past_error:
+                return past_error
             appointment.start_time = start_time
-        if 'end_time' in data:
-            end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-            if end_time.tzinfo:
-                end_time = end_time.replace(tzinfo=None)
             appointment.end_time = end_time
-        
-        if appointment.start_time and appointment.end_time:
+            appointment.duration_minutes = duration_minutes
+        elif appointment.start_time and appointment.end_time:
             appointment.duration_minutes = int((appointment.end_time - appointment.start_time).total_seconds() / 60)
         
         appointment.practitioner_id = data.get('practitioner_id', appointment.practitioner_id)
@@ -2499,7 +2691,36 @@ def update_patient_appointment(patient_id, appointment_id):
             except Exception as e:
                 logger.error(f"Failed to update Google Calendar: {e}")
         
-        return jsonify({'success': True, 'appointment': appointment.to_dict()})
+        # Notify only when appointment time actually changed
+        notification_result = {'sms': False, 'email': False}
+        patient = appointment.patient
+        if patient and _appointment_time_changed(old_appointment_details, appointment):
+            try:
+                from ..notification_service import NotificationService
+                notification_service = NotificationService()
+                
+                result = notification_service.send_appointment_update(
+                    patient=patient,
+                    appointment=appointment,
+                    old_appointment_details=old_appointment_details,
+                    user_id=current_user.id
+                )
+                if result.get('sms_sent'):
+                    notification_result['sms'] = True
+                    logger.info(f"✅ Sent appointment update SMS for appointment {appointment.id}")
+                if result.get('email_sent'):
+                    notification_result['email'] = True
+                    logger.info(f"✅ Sent appointment update email for appointment {appointment.id}")
+            except Exception as notif_error:
+                logger.error(f"❌ Error sending update notification for appointment {appointment.id}: {notif_error}", exc_info=True)
+        elif patient:
+            logger.info(f"Skipping update notification for appointment {appointment.id} — time unchanged")
+        
+        return jsonify({
+            'success': True, 
+            'appointment': appointment.to_dict(),
+            'notification_sent': notification_result
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error updating patient appointment: {e}")
