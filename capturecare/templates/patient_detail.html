@@ -880,6 +880,9 @@
                 <button type="button" onclick="openSmsModal()" class="px-4 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
                     <i class="fas fa-sms mr-2"></i>Send SMS
                 </button>
+                <button type="button" onclick="openEmailModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold">
+                    <i class="fas fa-envelope mr-2"></i>Send Email
+                </button>
             </div>
         </div>
         
@@ -3017,9 +3020,13 @@ async function saveAppointment(event) {
     event.preventDefault();
     
     const formData = new FormData(event.target);
+    const bookDate = document.getElementById('bookDate')?.value || '';
+    const bookTime = document.getElementById('bookTime')?.value || '';
     const appointmentData = {
         title: formData.get('title'),
         appointment_type: formData.get('appointment_type'),
+        date: bookDate || undefined,
+        time: bookTime || undefined,
         start_time: formData.get('start_time'),
         duration_minutes: parseInt(formData.get('duration_minutes')),
         location: formData.get('location'),
@@ -3245,18 +3252,26 @@ async function updateAppointment(event) {
     
     const appointmentId = document.getElementById('editAppointmentId').value;
     const formData = new FormData(event.target);
+    const editDate = document.getElementById('editDate')?.value || '';
+    const editTime = document.getElementById('editTime')?.value || '';
+    const practitionerRaw = formData.get('practitioner') || document.getElementById('editPractitioner')?.value;
     const appointmentData = {
         title: formData.get('title'),
         appointment_type: formData.get('appointment_type'),
+        // Prefer date/time so calendar handlers / parsers stick the reschedule
+        date: editDate || undefined,
+        time: editTime || undefined,
         start_time: formData.get('start_time'),
         duration_minutes: parseInt(formData.get('duration_minutes')),
         location: formData.get('location'),
-        practitioner: formData.get('practitioner'),
+        practitioner: practitionerRaw,
+        practitioner_id: practitionerRaw ? parseInt(practitionerRaw, 10) : null,
         notes: formData.get('notes'),
         send_email: formData.get('send_email') === 'on'
     };
     
     try {
+        // Use patient appointment PUT (now parses date/time) so reschedule sticks
         const response = await fetch(`/patients/{{ patient.id }}/appointments/${appointmentId}`, {
             method: 'PUT',
             headers: {
@@ -4311,16 +4326,15 @@ async function saveTargetRanges() {
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Link to Appointment (Optional)</label>
                 <select id="noteAppointment" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                    <option value="">No appointment</option>
+                    <option value="">General note (no appointment)</option>
                 </select>
+                <p class="text-xs text-gray-500 mt-1">Leave as general note, or link this note to a specific appointment.</p>
             </div>
             
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Note</label>
-                <textarea id="noteText" rows="10" 
-                          class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm"
-                          placeholder="Enter patient notes here..." required></textarea>
-                <p class="text-xs text-gray-500 mt-1">Supports plain text and markdown formatting</p>
+                <div id="noteEditorQuill" class="bg-white" style="min-height: 200px;"></div>
+                <p class="text-xs text-gray-500 mt-1">Use the toolbar for bold, italic, and bullet/numbered lists.</p>
             </div>
             
             <div class="mb-4">
@@ -4336,8 +4350,8 @@ async function saveTargetRanges() {
             </div>
             
             <div class="flex gap-2">
-                <button type="submit" class="px-6 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
-                    <i class="fas fa-save mr-2"></i>Save Note
+                <button type="submit" id="noteSaveBtn" class="px-6 py-2 bg-brand-bright-teal text-white rounded-lg hover:bg-brand-teal transition font-semibold">
+                    <i class="fas fa-save mr-2"></i><span id="noteSaveBtnLabel">Save Note</span>
                 </button>
                 <button type="button" onclick="closeNoteModal()" class="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-semibold">
                     <i class="fas fa-times mr-2"></i>Cancel
@@ -4365,18 +4379,18 @@ async function saveTargetRanges() {
                        value="{{ patient.mobile or patient.phone or '' }}" 
                        placeholder="+61400000000"
                        class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
-                <p class="text-xs text-gray-500 mt-1">Include country code (e.g., +61 for Australia)</p>
+                <p class="text-xs text-gray-500 mt-1">Australian mobiles like 04… are normalized to +61. Include country code for other countries.</p>
             </div>
             
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">
                     Message
                 </label>
-                <textarea id="smsMessage" rows="5" maxlength="160"
+                <textarea id="smsMessage" rows="5"
                           class="w-full px-3 py-2 border border-gray-300 rounded-lg"
                           placeholder="Type your message here..." required></textarea>
                 <p class="text-xs text-gray-500 mt-1">
-                    <span id="charCount">0</span>/160 characters
+                    <span id="charCount">0</span> characters<span id="smsSegmentHint" class="text-gray-400"></span>
                 </p>
             </div>
             
@@ -4385,6 +4399,59 @@ async function saveTargetRanges() {
                     <i class="fas fa-paper-plane mr-2"></i>Send SMS
                 </button>
                 <button type="button" onclick="closeSmsModal()" class="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-semibold">
+                    <i class="fas fa-times mr-2"></i>Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Freeform Email Modal -->
+<div id="emailModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b border-gray-200">
+            <h3 class="text-2xl font-bold text-gray-800">
+                <i class="fas fa-envelope text-blue-600 mr-2"></i>Send Email
+            </h3>
+            <p class="text-sm text-gray-600 mt-1">Compose a message to {{ patient.first_name }} {{ patient.last_name }}</p>
+        </div>
+        
+        <form id="emailForm" onsubmit="sendPatientEmail(event)" class="p-6">
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">To</label>
+                <input type="email" id="emailTo"
+                       value="{{ patient.email or '' }}"
+                       placeholder="patient@example.com"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                <p id="emailToHint" class="text-xs mt-1 {% if patient.email %}text-gray-500{% else %}text-red-600{% endif %}">
+                    {% if patient.email %}
+                    Prefill from patient record; you can override if needed.
+                    {% else %}
+                    No email on file for this patient. Enter an address to send, or update the patient record.
+                    {% endif %}
+                </p>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
+                <input type="text" id="emailSubject"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                       placeholder="Subject" required>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Message</label>
+                <textarea id="emailBody" rows="10"
+                          class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          placeholder="Write your message (plain text or simple HTML)..." required></textarea>
+                <p class="text-xs text-gray-500 mt-1">Plain text is fine; line breaks are preserved. Simple HTML is also accepted.</p>
+            </div>
+            
+            <div class="flex gap-2">
+                <button type="submit" id="emailSendBtn" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold">
+                    <i class="fas fa-paper-plane mr-2"></i>Send Email
+                </button>
+                <button type="button" onclick="closeEmailModal()" class="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-semibold">
                     <i class="fas fa-times mr-2"></i>Cancel
                 </button>
             </div>
@@ -5022,6 +5089,51 @@ function escapeHtml(text) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+/** Sanitize Quill/legacy note HTML for safe display (allowlist). Plain text stays escaped. */
+function sanitizeNoteHtml(html) {
+    if (!html) return '';
+    const looksLikeHtml = /<\s*(p|br|ul|ol|li|strong|em|b|i|a|div|h[1-6])(\s|>|\/)/i.test(html);
+    if (!looksLikeHtml) {
+        return escapeHtml(html).replace(/\n/g, '<br>');
+    }
+    const allowed = new Set(['P', 'BR', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'B', 'I', 'A']);
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    function clean(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return document.createTextNode(node.textContent);
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+            return document.createTextNode('');
+        }
+        const tag = node.tagName.toUpperCase();
+        if (!allowed.has(tag)) {
+            const frag = document.createDocumentFragment();
+            Array.from(node.childNodes).forEach(function (child) {
+                frag.appendChild(clean(child));
+            });
+            return frag;
+        }
+        const el = document.createElement(tag.toLowerCase());
+        if (tag === 'A') {
+            const href = node.getAttribute('href') || '';
+            if (/^https?:\/\//i.test(href) || href.startsWith('mailto:')) {
+                el.setAttribute('href', href);
+                el.setAttribute('target', '_blank');
+                el.setAttribute('rel', 'noopener noreferrer');
+            }
+        }
+        Array.from(node.childNodes).forEach(function (child) {
+            el.appendChild(clean(child));
+        });
+        return el;
+    }
+    const wrap = document.createElement('div');
+    Array.from(doc.body.childNodes).forEach(function (child) {
+        wrap.appendChild(clean(child));
+    });
+    return wrap.innerHTML;
+}
+
     function previewAttachment(noteId, filename, mimeType) {
         const modal = document.getElementById('attachmentPreviewModal');
         const modalTitle = document.getElementById('attachmentPreviewTitle');
@@ -5126,12 +5238,13 @@ async function loadNotes() {
                 // Get first 2 lines of note text (excluding subject if it exists)
                 let previewText = '';
                 if (noteText) {
-                    const lines = noteText.split('\n').filter(line => line.trim());
-                    const firstTwoLines = lines.slice(0, 2).join(' ').trim();
-                    previewText = firstTwoLines.substring(0, 150);
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = noteText;
+                    const plain = (tmp.textContent || tmp.innerText || noteText).replace(/\s+/g, ' ').trim();
+                    previewText = plain.substring(0, 150);
                 }
                 
-                const hasMore = noteText.length > previewText.length;
+                const hasMore = (noteText || '').length > previewText.length;
                 
                 return `
                     <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition bg-white">
@@ -5166,6 +5279,11 @@ async function loadNotes() {
                                 <button onclick='viewNoteDetailById(${note.id})'
                                         class="px-3 py-1.5 bg-brand-bright-teal hover:bg-teal-600 text-white rounded text-xs transition font-semibold whitespace-nowrap">
                                     <i class="fas fa-eye mr-1"></i>View
+                                </button>
+                                <button type="button" onclick='editNote(${note.id})'
+                                        class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs transition font-semibold whitespace-nowrap"
+                                        title="Edit note">
+                                    <i class="fas fa-edit mr-1"></i>Edit
                                 </button>
                                 <button onclick='deleteNote(${note.id})'
                                         class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition font-semibold whitespace-nowrap">
@@ -5265,8 +5383,8 @@ function viewNoteDetail(note) {
         </div>
         
         <div class="bg-gray-50 rounded-lg p-4 mb-4 max-h-96 overflow-y-auto">
-            <div class="text-gray-800 whitespace-pre-wrap">
-                ${linkify(note.note_text || '').replace(/\n/g, '<br>')}
+            <div class="text-gray-800 prose prose-sm max-w-none note-html-body">
+                ${sanitizeNoteHtml(note.note_text || '')}
             </div>
         </div>
         
@@ -5321,31 +5439,81 @@ function closeNoteDetailModal() {
 
 async function loadAppointmentsForNote() {
     try {
-        const response = await fetch(`/api/patients/{{ patient.id }}/appointments`);
+        // Route is /patients/<id>/appointments (not under /api/)
+        const response = await fetch(`/patients/{{ patient.id }}/appointments`);
         const data = await response.json();
         
         const select = document.getElementById('noteAppointment');
-        select.innerHTML = '<option value="">No appointment</option>';
+        select.innerHTML = '<option value="">General note (no appointment)</option>';
         
-        if (data.appointments) {
-            data.appointments.forEach(appt => {
-                const date = new Date(appt.start_time).toLocaleString('en-AU', {
-                    timeZone: 'Australia/Sydney',
-                    month: 'short', day: 'numeric', year: 'numeric'
-                });
-                select.innerHTML += `<option value="${appt.id}">${appt.appointment_type} - ${date}</option>`;
+        const appointments = data.appointments || [];
+        appointments.forEach(appt => {
+            const date = new Date(appt.start_time).toLocaleString('en-AU', {
+                timeZone: 'Australia/Sydney',
+                month: 'short', day: 'numeric', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
             });
-        }
+            const label = appt.appointment_type || appt.type || appt.title || 'Appointment';
+            select.innerHTML += `<option value="${appt.id}">${label} — ${date}</option>`;
+        });
+        return appointments;
     } catch (error) {
         console.error('Error loading appointments:', error);
+        return [];
+    }
+}
+
+let noteEditor = null;
+
+function ensureNoteEditor() {
+    if (noteEditor) return noteEditor;
+    if (typeof Quill === 'undefined') {
+        console.error('Quill not loaded yet');
+        return null;
+    }
+    noteEditor = new Quill('#noteEditorQuill', {
+        theme: 'snow',
+        placeholder: 'Enter patient notes here...',
+        modules: {
+            toolbar: [
+                ['bold', 'italic'],
+                [{ list: 'ordered' }, { list: 'bullet' }],
+                ['clean']
+            ]
+        }
+    });
+    return noteEditor;
+}
+
+function getNoteEditorHtml() {
+    const ed = ensureNoteEditor();
+    if (!ed) return '';
+    const html = (ed.root.innerHTML || '').trim();
+    if (!html || html === '<p><br></p>' || html === '<p></p>') return '';
+    return html;
+}
+
+function setNoteEditorHtml(html) {
+    const ed = ensureNoteEditor();
+    if (!ed) return;
+    const raw = html || '';
+    const looksLikeHtml = /<\s*(p|br|ul|ol|li|strong|em|b|i|a|div)(\s|>|\/)/i.test(raw);
+    if (looksLikeHtml) {
+        ed.root.innerHTML = raw;
+    } else {
+        ed.setText(raw);
     }
 }
 
 function openNoteModal() {
     currentNoteId = null;
     document.getElementById('noteModalTitle').textContent = 'Add Note';
+    const saveLabel = document.getElementById('noteSaveBtnLabel');
+    if (saveLabel) saveLabel.textContent = 'Save Note';
     document.getElementById('noteForm').reset();
     document.getElementById('noteId').value = '';
+    ensureNoteEditor();
+    setNoteEditorHtml('');
     loadAppointmentsForNote();
     document.getElementById('noteModal').classList.remove('hidden');
 }
@@ -5359,49 +5527,73 @@ async function saveNote(event) {
     event.preventDefault();
     
     const noteId = document.getElementById('noteId').value;
-    const noteText = document.getElementById('noteText').value;
+    const noteText = getNoteEditorHtml();
     const noteType = document.getElementById('noteType').value;
-    const appointmentId = document.getElementById('noteAppointment').value;
+    const appointmentRaw = document.getElementById('noteAppointment').value;
+    const appointmentId = appointmentRaw ? parseInt(appointmentRaw, 10) : null;
     const fileInput = document.getElementById('noteAttachment');
+    const saveBtn = document.getElementById('noteSaveBtn');
+    const saveLabel = document.getElementById('noteSaveBtnLabel');
+    const originalLabel = saveLabel ? saveLabel.textContent : 'Save Note';
+
+    if (!noteText) {
+        alert('Please enter note content.');
+        return;
+    }
+
+    let subject = '';
+    if (noteEditor) {
+        const plain = (noteEditor.getText() || '').trim();
+        subject = plain.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || '';
+        if (subject.length > 200) subject = subject.substring(0, 200);
+    }
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        if (saveLabel) saveLabel.textContent = noteId ? 'Updating...' : 'Saving...';
+    }
     
     try {
         let response;
+        const payload = {
+            note_text: noteText,
+            note_type: noteType,
+            appointment_id: appointmentId,
+            subject: subject,
+            author: 'Admin'
+        };
+
         if (noteId) {
-            // Update existing note (file upload not supported for edits)
+            // Update existing note — persist text, type, and appointment link
+            // (file upload not supported for edits)
             response = await fetch(`/api/notes/${noteId}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({note_text: noteText, note_type: noteType})
+                body: JSON.stringify(payload)
             });
         } else {
-            // Create new note
-            const hasFile = fileInput.files && fileInput.files.length > 0;
+            // Create new note (null appointment_id = general note)
+            const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
             
             if (hasFile) {
-                // Use FormData for file upload
+                // Keep Cloud Run attachment upload support
                 const formData = new FormData();
                 formData.append('note_text', noteText);
                 formData.append('note_type', noteType);
-                formData.append('appointment_id', appointmentId || '');
+                formData.append('appointment_id', appointmentId != null ? String(appointmentId) : '');
+                formData.append('subject', subject);
                 formData.append('author', 'Admin');
                 formData.append('attachment', fileInput.files[0]);
                 
                 response = await fetch(`/api/patients/{{ patient.id }}/notes`, {
                     method: 'POST',
                     body: formData
-                    // Don't set Content-Type header - browser will set it with boundary for multipart
                 });
             } else {
-                // Use JSON for text-only note
                 response = await fetch(`/api/patients/{{ patient.id }}/notes`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        note_text: noteText,
-                        note_type: noteType,
-                        appointment_id: appointmentId || null,
-                        author: 'Admin'
-                    })
+                    body: JSON.stringify(payload)
                 });
             }
         }
@@ -5410,14 +5602,23 @@ async function saveNote(event) {
         
         if (data.success) {
             closeNoteModal();
-            loadNotes();
-            alert('✅ Note saved successfully!');
+            await loadNotes();
+            if (typeof showNotification === 'function') {
+                showNotification(noteId ? '✅ Note updated' : '✅ Note saved', 'success');
+            } else {
+                alert(noteId ? '✅ Note updated' : '✅ Note saved');
+            }
         } else {
-            alert('Error saving note: ' + data.error);
+            alert('Error saving note: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Error saving note:', error);
         alert('Error saving note: ' + error.message);
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            if (saveLabel) saveLabel.textContent = originalLabel;
+        }
     }
 }
 
@@ -5426,23 +5627,28 @@ async function editNote(noteId) {
         const response = await fetch(`/api/patients/{{ patient.id }}/notes`);
         const data = await response.json();
         
-        const note = data.notes.find(n => n.id === noteId);
-        if (note) {
-            currentNoteId = noteId;
-            document.getElementById('noteModalTitle').textContent = 'Edit Note';
-            document.getElementById('noteId').value = noteId;
-            document.getElementById('noteText').value = note.note_text;
-            document.getElementById('noteType').value = note.note_type;
-            loadAppointmentsForNote();
-            if (note.appointment_id) {
-                setTimeout(() => {
-                    document.getElementById('noteAppointment').value = note.appointment_id;
-                }, 100);
-            }
-            document.getElementById('noteModal').classList.remove('hidden');
+        const note = (data.notes || []).find(n => n.id === noteId);
+        if (!note) {
+            alert('Could not find that note to edit.');
+            return;
         }
+
+        currentNoteId = noteId;
+        document.getElementById('noteModalTitle').textContent = 'Edit Note';
+        const saveLabel = document.getElementById('noteSaveBtnLabel');
+        if (saveLabel) saveLabel.textContent = 'Update Note';
+        document.getElementById('noteId').value = noteId;
+        document.getElementById('noteType').value = note.note_type || 'manual';
+        ensureNoteEditor();
+        setNoteEditorHtml(note.note_text || '');
+        await loadAppointmentsForNote();
+        document.getElementById('noteAppointment').value = note.appointment_id
+            ? String(note.appointment_id)
+            : '';
+        document.getElementById('noteModal').classList.remove('hidden');
     } catch (error) {
         console.error('Error loading note:', error);
+        alert('Error loading note for edit');
     }
 }
 
@@ -5470,8 +5676,8 @@ document.addEventListener('DOMContentLoaded', loadNotes);
 // SMS & Correspondence functionality
 function openSmsModal() {
     document.getElementById('smsModal').classList.remove('hidden');
-    // Update character count
     const messageField = document.getElementById('smsMessage');
+    messageField.removeEventListener('input', updateCharCount);
     messageField.addEventListener('input', updateCharCount);
     updateCharCount();
 }
@@ -5479,12 +5685,85 @@ function openSmsModal() {
 function closeSmsModal() {
     document.getElementById('smsModal').classList.add('hidden');
     document.getElementById('smsForm').reset();
+    updateCharCount();
+}
+
+function openEmailModal() {
+    document.getElementById('emailModal').classList.remove('hidden');
+    const toField = document.getElementById('emailTo');
+    if (!toField.value) {
+        toField.focus();
+    } else {
+        document.getElementById('emailSubject').focus();
+    }
+}
+
+function closeEmailModal() {
+    document.getElementById('emailModal').classList.add('hidden');
+    document.getElementById('emailSubject').value = '';
+    document.getElementById('emailBody').value = '';
+}
+
+async function sendPatientEmail(event) {
+    event.preventDefault();
+    const to = document.getElementById('emailTo').value.trim();
+    const subject = document.getElementById('emailSubject').value.trim();
+    const body = document.getElementById('emailBody').value;
+    const btn = document.getElementById('emailSendBtn');
+    const originalText = btn.innerHTML;
+
+    if (!to) {
+        alert('Enter a recipient email address, or add one on the patient record.');
+        return;
+    }
+    if (!subject || !body.trim()) {
+        alert('Subject and message are required.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+
+    try {
+        const response = await fetch(`/api/patients/{{ patient.id }}/send-email`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ to: to, subject: subject, body: body })
+        });
+        const data = await response.json();
+        if (data.success) {
+            alert('✅ ' + (data.message || 'Email sent successfully!'));
+            closeEmailModal();
+            if (typeof loadCorrespondence === 'function') loadCorrespondence();
+        } else {
+            alert('❌ ' + (data.error || 'Failed to send email'));
+        }
+    } catch (error) {
+        console.error('Error sending email:', error);
+        alert('❌ Error sending email: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 function updateCharCount() {
     const messageField = document.getElementById('smsMessage');
     const charCount = document.getElementById('charCount');
-    charCount.textContent = messageField.value.length;
+    const hint = document.getElementById('smsSegmentHint');
+    if (!messageField || !charCount) return;
+    const len = messageField.value.length;
+    charCount.textContent = len;
+    if (hint) {
+        if (len === 0) {
+            hint.textContent = '';
+        } else if (len <= 160) {
+            hint.textContent = ' · 1 SMS segment';
+        } else {
+            const segments = Math.ceil(len / 153);
+            hint.textContent = ' · ~' + segments + ' SMS segments (multipart OK)';
+        }
+    }
 }
 
 let tempPassword = '';
@@ -5650,7 +5929,7 @@ async function sendIOSAppInvite() {
 async function sendSms(event) {
     event.preventDefault();
     
-    const phone = document.getElementById('smsPhone').value;
+    const phone = document.getElementById('smsPhone').value.trim();
     const message = document.getElementById('smsMessage').value;
     
     if (!phone || !message) {
@@ -5672,11 +5951,15 @@ async function sendSms(event) {
         const data = await response.json();
         
         if (data.success) {
-            alert('✅ SMS sent successfully!');
+            if (data.warning || data.logged === false) {
+                alert('⚠️ ' + (data.message || data.warning || 'SMS sent, but correspondence logging may have failed.'));
+            } else {
+                alert('✅ SMS sent successfully!');
+            }
             closeSmsModal();
             loadCorrespondence(); // Reload correspondence list
         } else {
-            alert('❌ Error sending SMS: ' + data.error);
+            alert('❌ ' + (data.error || 'Error sending SMS'));
         }
     } catch (error) {
         console.error('Error sending SMS:', error);
@@ -7000,6 +7283,14 @@ function resetVideoGeneration() {
 
 <!-- Quill.js CSS -->
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<style>
+/* Note Quill editor + sanitized list display (Tailwind preflight resets lists) */
+#noteEditorQuill .ql-container { min-height: 180px; border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; }
+#noteEditorQuill .ql-toolbar { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; }
+.note-html-body ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+.note-html-body ol { list-style: decimal; padding-left: 1.25rem; margin: 0.5rem 0; }
+.note-html-body p { margin: 0.35rem 0; }
+</style>
 
 <!-- Report Editor Modal -->
 <div id="reportEditorModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">

@@ -13,7 +13,8 @@ class NotificationService:
     
     def __init__(self):
         self._initialize_services()
-    
+        self.last_email_error = None
+
     def _initialize_services(self):
         """Initialize or reinitialize services with current config"""
         # Reload config from environment
@@ -72,8 +73,11 @@ class NotificationService:
         if phone.startswith('+'):
             return phone
         
-        # Remove leading zeros
+        # Remove leading zeros (Australian local format 04… → 4…)
         phone = phone.lstrip('0')
+        
+        if not phone:
+            return None
         
         # If it starts with country code (61 for Australia)
         if phone.startswith('61'):
@@ -94,11 +98,22 @@ class NotificationService:
             log_correspondence (bool): Whether to log to correspondence table (default: True)
             
         Returns:
-            dict: {'success': bool, 'sid': str, 'status': str, 'error': str}
+            dict: {'success': bool, 'sid': str, 'status': str, 'error': str, 'logged': bool, 'warning': str}
         """
         if not self.twilio_configured:
             logger.warning(f"Cannot send SMS - Twilio not configured")
-            return {'success': False, 'error': 'Twilio not configured'}
+            err = 'Twilio is not configured. Open Settings → Twilio (SMS Notifications) and add Account SID, Auth Token, and From number.'
+            # Log failed correspondence if patient_id provided
+            if log_correspondence and patient_id:
+                self._log_sms_correspondence(
+                    patient_id=patient_id,
+                    user_id=user_id,
+                    recipient_phone=to_phone,
+                    message=message,
+                    status='failed',
+                    error_message=err
+                )
+            return {'success': False, 'error': err}
         
         if not to_phone:
             logger.warning("Cannot send SMS - no phone number provided")
@@ -107,6 +122,18 @@ class NotificationService:
         try:
             # Format phone number to E.164 format
             formatted_phone = self._format_phone_number(to_phone)
+            if not formatted_phone or formatted_phone in ('+61', '+'):
+                err = f'Invalid phone number ({to_phone}). Use E.164 format, e.g. +61400000000 for Australian mobiles.'
+                if log_correspondence and patient_id:
+                    self._log_sms_correspondence(
+                        patient_id=patient_id,
+                        user_id=user_id,
+                        recipient_phone=to_phone,
+                        message=message,
+                        status='failed',
+                        error_message=err
+                    )
+                return {'success': False, 'error': err}
             logger.info(f"📱 Formatting phone: {to_phone} -> {formatted_phone}")
             
             message_obj = self.twilio_client.messages.create(
@@ -117,9 +144,11 @@ class NotificationService:
             
             logger.info(f"✅ SMS sent to {formatted_phone}: {message_obj.sid}")
             
+            logged = True
+            warning = None
             # Log correspondence if patient_id provided
             if log_correspondence and patient_id:
-                self._log_sms_correspondence(
+                logged = self._log_sms_correspondence(
                     patient_id=patient_id,
                     user_id=user_id,
                     recipient_phone=formatted_phone,
@@ -127,16 +156,24 @@ class NotificationService:
                     status='sent',  # Show as 'sent' instead of 'queued' since message was successfully sent
                     external_id=message_obj.sid
                 )
+                if not logged:
+                    warning = 'SMS was sent successfully, but failed to save to correspondence history. Check Twilio if needed.'
             
             return {
                 'success': True,
                 'sid': message_obj.sid,
                 'status': message_obj.status,
-                'error': None
+                'error': None,
+                'logged': logged,
+                'warning': warning,
             }
             
         except Exception as e:
             logger.error(f"❌ Error sending SMS to {to_phone}: {e}")
+            err = str(e)
+            err_l = err.lower()
+            if 'not a valid phone' in err_l or ('invalid' in err_l and 'phone' in err_l):
+                err = f'Invalid phone number ({to_phone}). Use E.164 format, e.g. +61400000000 for Australian mobiles.'
             
             # Log failed correspondence if patient_id provided
             if log_correspondence and patient_id:
@@ -146,13 +183,13 @@ class NotificationService:
                     recipient_phone=to_phone,
                     message=message,
                     status='failed',
-                    error_message=str(e)
+                    error_message=err
                 )
             
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': err}
     
     def _log_sms_correspondence(self, patient_id, recipient_phone, message, status, user_id=None, external_id=None, error_message=None):
-        """Log SMS correspondence to database"""
+        """Log SMS correspondence to database. Returns True on success, False on failure."""
         try:
             from models import db, PatientCorrespondence
             from datetime import datetime
@@ -174,7 +211,8 @@ class NotificationService:
             
             db.session.add(correspondence)
             db.session.commit()
-            logger.info(f"✅ Logged SMS correspondence for patient {patient_id}")
+            logger.info(f"✅ Successfully logged SMS correspondence for patient {patient_id} (ID: {correspondence.id})")
+            return True
             
         except Exception as e:
             error_str = str(e)
@@ -184,10 +222,36 @@ class NotificationService:
                 # Try to fix the sequence by getting max ID and setting it
                 try:
                     from models import db, PatientCorrespondence
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
                     max_id = db.session.query(db.func.max(PatientCorrespondence.id)).scalar() or 0
                     db.session.execute(db.text(f"SELECT setval('patient_correspondence_id_seq', {max_id + 1}, false)"))
                     db.session.commit()
                     logger.info(f"✅ Fixed patient_correspondence sequence to {max_id + 1}")
+                    
+                    # Try logging again after fixing sequence
+                    try:
+                        correspondence = PatientCorrespondence(
+                            patient_id=patient_id,
+                            user_id=user_id,
+                            channel='sms',
+                            direction='outbound',
+                            body=message,
+                            recipient_phone=recipient_phone,
+                            status=status,
+                            external_id=external_id,
+                            error_message=error_message,
+                            sent_at=datetime.utcnow(),
+                            delivered_at=datetime.utcnow() if status in ['sent', 'delivered', 'queued'] else None
+                        )
+                        db.session.add(correspondence)
+                        db.session.commit()
+                        logger.info(f"✅ Successfully logged SMS correspondence after sequence fix (ID: {correspondence.id})")
+                        return True
+                    except Exception as retry_error:
+                        logger.error(f"❌ Failed to log SMS correspondence after sequence fix: {retry_error}")
                 except Exception as seq_error:
                     logger.error(f"❌ Failed to fix sequence: {seq_error}")
             else:
@@ -196,10 +260,11 @@ class NotificationService:
             # Don't fail the SMS send if logging fails
             try:
                 db.session.rollback()
-            except:
+            except Exception:
                 pass
+            return False
     
-    def send_email(self, to_email, subject, body_html, body_text=None, patient_id=None, user_id=None, log_correspondence=True):
+    def send_email(self, to_email, subject, body_html, body_text=None, patient_id=None, user_id=None, log_correspondence=True, correspondence_metadata=None, attachments=None, email_log_source=None):
         """
         Send email via SMTP
         
@@ -215,8 +280,12 @@ class NotificationService:
         Returns:
             bool: True if sent successfully, False otherwise
         """
+        self.last_email_error = None
+        # correspondence_metadata / attachments / email_log_source accepted for API parity with Railway PM email;
+        # Cloud Run SMTP path logs correspondence without metadata JSON when unsupported.
         if not self.smtp_configured:
             logger.warning("Cannot send email - SMTP not configured")
+            self.last_email_error = 'SMTP not configured. Open Settings → Email delivery and confirm SMTP is configured.'
             return False
         
         if not to_email:
@@ -264,6 +333,7 @@ class NotificationService:
             
         except Exception as e:
             logger.error(f"❌ Error sending email to {to_email}: {e}")
+            self.last_email_error = str(e)
             
             # Log failed correspondence if patient_id provided
             if log_correspondence and patient_id:

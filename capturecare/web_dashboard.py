@@ -1367,8 +1367,9 @@ def api_list_patients():
             'patients': [{
                 'id': p.id,
                 'name': f"{p.first_name} {p.last_name}",
-                'phone': p.phone or p.mobile,
-                'email': p.email
+                # Prefer mobile for SMS quick actions
+                'phone': p.mobile or p.phone,
+                'email': p.email or ''
             } for p in patients]
         })
     except Exception as e:
@@ -1926,6 +1927,24 @@ def import_from_cliniko():
     
     return redirect(url_for('patients.patients_list'))
 
+def _subject_from_note_text(note_text):
+    """Derive a short plain-text subject from note body (supports Quill HTML and legacy plain text)."""
+    import re
+    import html as html_lib
+    if not note_text:
+        return ''
+    text = str(note_text)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.I)
+    text = re.sub(r'</(p|div|li|h[1-6])>', '\n', text, flags=re.I)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = html_lib.unescape(text)
+    for line in text.split('\n'):
+        line = line.strip()
+        if line:
+            return line[:200]
+    return ''
+
+
 # Patient Notes API Endpoints
 @app.route('/api/patients/<int:patient_id>/notes', methods=['GET'])
 @optional_login_required
@@ -1938,7 +1957,7 @@ def get_patient_notes(patient_id):
         for note in notes:
             note_dict = {
                 'id': note.id,
-                'subject': note.subject or (note.note_text.split('\n')[0][:200] if note.note_text else ''),
+                'subject': note.subject or _subject_from_note_text(note.note_text),
                 'note_text': note.note_text,
                 'note_type': note.note_type,
                 'author': note.author or 'System',
@@ -1983,10 +2002,9 @@ def create_patient_note(patient_id):
             author = request.form.get('author', 'Admin')
             appointment_id = request.form.get('appointment_id')
             
-            # Extract subject from first line if not provided
+            # Extract subject from first line if not provided (strip Quill HTML)
             if not subject and note_text:
-                first_line = note_text.split('\n')[0].strip()
-                subject = first_line[:200] if len(first_line) > 200 else first_line
+                subject = _subject_from_note_text(note_text)
             
             note = PatientNote(
                 patient_id=patient_id,
@@ -2047,19 +2065,22 @@ def create_patient_note(patient_id):
             })
         else:
             # Handle JSON request (legacy, no file)
-            data = request.get_json()
+            data = request.get_json() or {}
             
-            # Extract subject from first line if not provided
+            # Extract subject from first line if not provided (strip Quill HTML)
             note_text = data.get('note_text', '')
             subject = data.get('subject', '')
             if not subject and note_text:
-                # Use first line as subject (max 200 chars)
-                first_line = note_text.split('\n')[0].strip()
-                subject = first_line[:200] if len(first_line) > 200 else first_line
+                subject = _subject_from_note_text(note_text)
+
+            raw_appointment_id = data.get('appointment_id')
+            appointment_id = None
+            if raw_appointment_id not in (None, '', 'null'):
+                appointment_id = int(raw_appointment_id)
             
             note = PatientNote(
                 patient_id=patient_id,
-                appointment_id=data.get('appointment_id'),
+                appointment_id=appointment_id,
                 subject=subject,
                 note_text=note_text,
                 note_type=data.get('note_type', 'manual'),
@@ -2093,14 +2114,27 @@ def update_patient_note(note_id):
     """Update an existing patient note"""
     try:
         note = PatientNote.query.get_or_404(note_id)
-        data = request.get_json()
-        
+        data = request.get_json() or {}
+
+        def _normalize_appointment_id(raw):
+            if raw is None or raw == '' or raw == 'null':
+                return None
+            return int(raw)
+
         if 'note_text' in data:
             note.note_text = data['note_text']
         if 'note_type' in data:
             note.note_type = data['note_type']
         if 'author' in data:
             note.author = data['author']
+        if 'appointment_id' in data:
+            note.appointment_id = _normalize_appointment_id(data.get('appointment_id'))
+
+        # Persist subject when provided; otherwise recompute from note_text when text changes
+        if 'subject' in data and data.get('subject') is not None:
+            note.subject = data.get('subject') or ''
+        elif 'note_text' in data:
+            note.subject = _subject_from_note_text(data.get('note_text') or '')
         
         db.session.commit()
         
@@ -2108,9 +2142,11 @@ def update_patient_note(note_id):
             'success': True,
             'note': {
                 'id': note.id,
+                'subject': note.subject,
                 'note_text': note.note_text,
                 'note_type': note.note_type,
                 'author': note.author,
+                'appointment_id': note.appointment_id,
                 'created_at': note.created_at.isoformat(),
                 'updated_at': note.updated_at.isoformat()
             }
@@ -2254,20 +2290,30 @@ def send_patient_sms(patient_id):
     """Send SMS to patient via Twilio"""
     try:
         patient = Patient.query.get_or_404(patient_id)
-        data = request.json
+        data = request.json or {}
         
-        phone = data.get('phone')
-        message = data.get('message')
+        phone = (data.get('phone') or patient.mobile or patient.phone or '').strip()
+        message = (data.get('message') or '').strip()
         
-        if not phone or not message:
-            return jsonify({'success': False, 'error': 'Phone and message are required'}), 400
+        if not phone:
+            return jsonify({
+                'success': False,
+                'error': 'No phone number on file for this patient. Add a mobile/phone on the patient record, or enter a number.'
+            }), 400
+        if not message:
+            return jsonify({'success': False, 'error': 'Message is required'}), 400
         
         # Send SMS using notification service
         from .notification_service import NotificationService
         notif_service = NotificationService()
         
+        if not notif_service.twilio_configured:
+            return jsonify({
+                'success': False,
+                'error': 'Twilio is not configured. Open Settings → Twilio (SMS Notifications) and add Account SID, Auth Token, and From number.'
+            }), 400
+        
         # Pass patient_id and user_id so NotificationService can log correspondence
-        # Set log_correspondence=True to let NotificationService handle logging
         result = notif_service.send_sms(
             phone, 
             message, 
@@ -2277,9 +2323,26 @@ def send_patient_sms(patient_id):
         )
         
         if result.get('success'):
-            return jsonify({'success': True, 'message': 'SMS sent successfully'})
+            resp = {
+                'success': True,
+                'message': result.get('warning') or 'SMS sent successfully',
+                'sid': result.get('sid'),
+            }
+            if result.get('warning'):
+                resp['warning'] = result['warning']
+                resp['logged'] = False
+            else:
+                resp['logged'] = True
+            return jsonify(resp)
         else:
-            return jsonify({'success': False, 'error': result.get('error', 'Failed to send SMS')}), 400
+            err = result.get('error') or 'Failed to send SMS'
+            # Make Twilio "not configured" / invalid number errors actionable
+            err_l = err.lower()
+            if 'twilio not configured' in err_l:
+                err = 'Twilio is not configured. Open Settings → Twilio (SMS Notifications) and add Account SID, Auth Token, and From number.'
+            elif 'not a valid' in err_l or ('invalid' in err_l and 'phone' in err_l):
+                err = f'Invalid phone number ({phone}). Use E.164 format, e.g. +61400000000 for Australian mobiles.'
+            return jsonify({'success': False, 'error': err}), 400
     except Exception as e:
         logger.error(f"Error sending SMS: {e}")
         db.session.rollback()
@@ -2288,9 +2351,74 @@ def send_patient_sms(patient_id):
         if 'UniqueViolation' in error_str or 'duplicate key' in error_str.lower():
             logger.warning(f"⚠️  Duplicate key error detected. This may indicate a sequence issue. Error: {e}")
             return jsonify({
-                'success': False, 
-                'error': 'Database error: Please contact support. The SMS may have been sent but failed to log.'
-            }), 500
+                'success': True,
+                'warning': True,
+                'logged': False,
+                'message': 'SMS may have been sent, but correspondence logging failed (database sequence). Check Twilio logs; contact support if it does not appear in history.'
+            }), 200
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/patients/<int:patient_id>/send-email', methods=['POST'])
+@optional_login_required
+def send_patient_email(patient_id):
+    """Send a freeform email to a patient (compose + send; logs to PatientCorrespondence)."""
+    try:
+        import re
+        patient = Patient.query.get_or_404(patient_id)
+        data = request.json or {}
+
+        to_email = (data.get('to') or data.get('email') or patient.email or '').strip()
+        subject = (data.get('subject') or '').strip()
+        body_html = data.get('body_html')
+        if body_html is None:
+            body_html = data.get('body') if data.get('body') is not None else data.get('message')
+        body_html = body_html if body_html is not None else ''
+        body_text = data.get('body_text')
+
+        if not to_email:
+            return jsonify({
+                'success': False,
+                'error': 'No email address on file for this patient. Add an email on the patient record, or enter a To address.'
+            }), 400
+        if not subject:
+            return jsonify({'success': False, 'error': 'Subject is required'}), 400
+        if not str(body_html).strip():
+            return jsonify({'success': False, 'error': 'Message body is required'}), 400
+
+        # Plain text body → HTML line breaks; keep plain fallback for clients that prefer text
+        if not re.search(r'<[a-zA-Z]', str(body_html)):
+            body_text = body_text or str(body_html)
+            body_html = str(body_html).replace('\n', '<br>\n')
+        elif not body_text:
+            # Rough plain fallback from HTML
+            body_text = re.sub(r'<br\s*/?>', '\n', str(body_html), flags=re.I)
+            body_text = re.sub(r'<[^>]+>', '', body_text)
+
+        from .notification_service import NotificationService
+        notif_service = NotificationService()
+        ok = notif_service.send_email(
+            to_email=to_email,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            patient_id=patient_id,
+            user_id=current_user.id if current_user.is_authenticated else None,
+            log_correspondence=True,
+            correspondence_metadata={'kind': 'freeform_email'},
+            email_log_source='freeform_email',
+        )
+
+        if ok:
+            return jsonify({'success': True, 'message': f'Email sent to {to_email}'})
+
+        err = getattr(notif_service, 'last_email_error', None) or (
+            'Failed to send email. Open Settings → Email delivery and confirm SMTP/Resend is configured.'
+        )
+        return jsonify({'success': False, 'error': err}), 400
+    except Exception as e:
+        logger.error(f"Error sending email to patient {patient_id}: {e}", exc_info=True)
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/patients/<int:patient_id>/generate-invite-password', methods=['POST'])
